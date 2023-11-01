@@ -1,0 +1,3 @@
+{"type": "SCHEMA", "stream": "Campaigns", "schema": {"type": ["object", "null"], "properties": {"name": {"type": ["string", "null"]}, "type": {"type": ["string", "null"]}}}, "key_properties": []}
+{"type": "RECORD", "stream": "Campaigns", "record": {"name": "Big Campaign"}}
+{"type": "STATE", "value": {}}
