@@ -104,8 +104,15 @@ class SalesforceV3Authenticator:
             return
         auth_request_payload = self.oauth_request_payload
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        if self._target._config.get("is_sandbox"):
+            login_url = 'https://test.salesforce.com/services/oauth2/token'
+        else:
+            login_url = 'https://login.salesforce.com/services/oauth2/token'
+
         token_response = requests.post(
-            self.auth_endpoint, headers=headers, data=auth_request_payload
+            login_url,
+            headers=headers,
+            data=auth_request_payload
         )
         try:
             token_response.raise_for_status()
@@ -121,5 +128,5 @@ class SalesforceV3Authenticator:
         self._target._config["access_token"] = token_json["access_token"]
         self._target._config["issued_at"] = issued_at
         self._target._config["instance_url"] = token_json["instance_url"]
-        with open(self._target.config_file, "w") as outfile:
+        with open(self._target._config_file_path, "w") as outfile:
             json.dump(self._target._config, outfile, indent=4)
