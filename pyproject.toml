@@ -3,7 +3,7 @@ name = "target-salesforce-v3"
 version = "0.0.1"
 description = "`target-salesforce-v3` is a Singer target for SalesforceV3, built with the Meltano Singer SDK."
 readme = "README.md"
-authors = ["FirstName LastName <firstname.lastname@example.com>"]
+authors = ["hotglue"]
 keywords = [
     "ELT",
     "SalesforceV3",
@@ -15,7 +15,7 @@ python = "<3.11,>=3.7.1"
 target-hotglue = {git = "https://gitlab.com/hotglue/target-hotglue-sdk.git"}
 requests = "^2.31.0"
 backports-cached-property = "^1.0.2"
-hotglue-models-crm = { git = "https://gitlab.com/hotglue/hotglue-models-crm.git", branch = "main"}
+hotglue-models-crm = { git = "https://gitlab.com/hotglue/hotglue-models-crm.git", branch = "master"}
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.4.0"
