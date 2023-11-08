@@ -23,7 +23,7 @@ class ContactsSink(SalesforceV3Sink):
     name = Contact.Stream.name
     campaigns = None
     contact_type = "Contact"
-    available_names = ["contact", "customers"]
+    available_names = ["contacts", "customers"]
 
     @cached_property
     def reference_data(self):
