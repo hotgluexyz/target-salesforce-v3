@@ -198,14 +198,15 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
     def validate_input(self, record: dict):
         return self.unified_schema(**record).dict()
 
-    @cached_property
-    def sf_fields(self):
-        sobject = self.request_api("GET", f"{self.endpoint}/describe/")
+    def sf_fields(self, object_type=None):
+        if not object_type:
+            sobject = self.request_api("GET", f"{self.endpoint}/describe/")
+        else:
+            sobject = self.request_api("GET", f"sobjects/{object_type}/describe/")
         return [f for f in sobject.json()["fields"]]
 
-    @cached_property
-    def sf_fields_description(self):
-        fld = self.sf_fields
+    def sf_fields_description(self, object_type=None):
+        fld = self.sf_fields(object_type=object_type)
         fields = {}
         fields["createable"] = [
             f["name"] for f in fld if f["createable"] and not f["custom"]
