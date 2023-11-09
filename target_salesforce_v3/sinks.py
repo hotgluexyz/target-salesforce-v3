@@ -184,7 +184,8 @@ class ContactsSink(SalesforceV3Sink):
         if record.get("Id"):
             fields = ["Id"]
         else:
-            fields = self.sf_fields_description["external_ids"]
+            fields_dict = self.sf_fields_description()
+            fields = fields_dict["external_ids"]
 
         for field in fields:
             if record.get(field):
@@ -465,7 +466,7 @@ class RecurringDonationsSink(SalesforceV3Sink):
             installment_period, "npe03__Installment_Period__c"
         )
 
-        self.sf_fields_description
+        fields_dict = self.sf_fields_description()
         if record.get("created_at"):
             created_at = parse(record.get("created_at"))
         else:
@@ -568,7 +569,8 @@ class CampaignSink(SalesforceV3Sink):
         if record.get("Id"):
             fields = ["Id"]
         else:
-            fields = self.sf_fields_description["external_ids"]
+            fields_dict = self.sf_fields_description()
+            fields = fields_dict["external_ids"]
 
         for field in fields:
             if record.get(field):
@@ -791,31 +793,23 @@ class FallbackSink(SalesforceV3Sink):
         if len(missing_fields) > 0.5 * len(fields):
             self.logger.info(f"This record may require more fields to be mapped. Missing fields: {missing_fields}")
 
-        for field in fields:
-            if record.get(field):
-                try:
-                    update_record = record.copy()
-                    update_record.pop(field)
-                    url = "/".join([endpoint, field, record[field]])
-                    response = self.request_api(
-                        "PATCH", endpoint=url, request_data=update_record
-                    )
-                    id = response.json().get("id")
-                    self.logger.info(f"{self.name} updated with id: {id}")
-                    return
-                except:
-                    self.logger.info(f"{field} with id {record[field]} does not exist. \nWill attepmt to create it.")
-                    record = update_record
+        if record.get("Id") or record.get("id"):
+            object_id = record.pop("Id") or record.pop("id")
+            url = "/".join([endpoint, object_type, object_id])
+            try:
+                response = self.request_api("PATCH", endpoint=url, request_data=record)
+                id = response.json().get("id")
+                self.logger.info(f"{object_type} updated with id: {id}")
+            except Exception as e:
+                self.logger.exception(f"Error encountered while updating {object_type}")
+                raise e
 
-        try:
-            response = self.request_api("POST", endpoint=endpoint, request_data=record)
-            id = response.json().get("id")
-            self.logger.info(f"{self.name} created with id: {id}")
-        except Exception as e:
-            self.logger.exception("Error encountered while creating campaign")
-            raise e
-
-
-
-
+        else:
+            try:
+                response = self.request_api("POST", endpoint=endpoint, request_data=record)
+                id = response.json().get("id")
+                self.logger.info(f"{object_type} created with id: {id}")
+            except Exception as e:
+                self.logger.exception(f"Error encountered while creating {object_type}")
+                raise e
 

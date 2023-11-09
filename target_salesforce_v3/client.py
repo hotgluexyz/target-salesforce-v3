@@ -124,7 +124,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         # Getting custom fields from record
         # self.process_custom_fields(record)
 
-        fields = self.sf_fields_description
+        fields = self.sf_fields_description()
 
         for field in fields["external_ids"]:
             if record.get(field):
@@ -234,7 +234,8 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         return fields
 
     def get_pickable(self, record_field, sf_field, default=None, select_first=False):
-        pickable_fields = self.sf_fields_description["pickable"]
+        fields_dict = self.sf_fields_description()
+        pickable_fields = fields_dict["pickable"]
         if sf_field not in pickable_fields:
             return default
         valid_options = [re.sub(r'\W+', '', choice).lower() for choice in pickable_fields[sf_field]]
@@ -259,10 +260,11 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
     def validate_output(self, mapping):
         mapping = self.clean_payload(mapping)
         payload = {}
-        if not self.sf_fields_description["createable"]:
+        fields_dict = self.sf_fields_description()
+        if not fields_dict["createable"]:
             raise NoCreatableFieldsException(f"No creatable fields for stream {self.name} stream, check your permissions")
         for k, v in mapping.items():
-            if k.endswith("__c") or k in self.sf_fields_description["createable"] + ["Id"]:
+            if k.endswith("__c") or k in fields_dict["createable"] + ["Id"]:
                 payload[k] = v
 
         # required = self.sf_fields_description["required"]
@@ -292,7 +294,8 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             return None
 
         # Checking if the custom fields already exist in
-        salesforce_custom_fields = self.sf_fields_description['custom']
+        fields_dict = self.sf_fields_description()
+        salesforce_custom_fields = fields_dict['custom']
 
         for cf in record:
             cf_name = cf['name']
