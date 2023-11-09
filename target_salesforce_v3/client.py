@@ -225,7 +225,6 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             if not f["nillable"] and f["createable"] and not f["defaultedOnCreate"]
         ]
         fields["external_ids"] = [f["name"] for f in fld if f["externalId"]]
-        fields["idLookup"] = [f["name"] for f in fld if f["idLookup"] == True]
         fields["pickable"] = {}
         for field in fld:
             if field["picklistValues"]:
