@@ -777,12 +777,6 @@ class FallbackSink(SalesforceV3Sink):
 
         endpoint = f"sobjects/{object_type}"
 
-        # Checks for required fields
-        for field in required_fields:
-            if record.get(field) is None:
-                self.logger.info(f"Skipping record, because {field} is required.")
-                return
-
         for field in record.keys():
             if field not in fields:
                 self.logger.info(f"Field {field} doesn't exist on Salesforce.")
