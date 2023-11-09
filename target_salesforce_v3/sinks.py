@@ -423,7 +423,7 @@ class CompanySink(SalesforceV3Sink):
         phones = record.get("phone_numbers", [])
         for i, phone in enumerate(phones):
             type = phone.get("type")
-            phone_type = phone_types[list(phone_types.keys())[i]]
+            phone_type = list(phone_types.keys())[i]
             phone_type = next(
                 (p for p, t in phone_types.items() if type in t), phone_type
             )
