@@ -775,7 +775,7 @@ class FallbackSink(SalesforceV3Sink):
 
         if record.get("Id") or record.get("id"):
             object_id = record.pop("Id") or record.pop("id")
-            url = "/".join([endpoint, object_type, object_id])
+            url = "/".join([endpoint, object_id])
             try:
                 response = self.request_api("PATCH", endpoint=url, request_data=record)
                 id = response.json().get("id")
@@ -783,13 +783,12 @@ class FallbackSink(SalesforceV3Sink):
                 return
             except Exception as e:
                 self.logger.exception(f"Error encountered while updating {object_type}")
-                raise e
 
         if len(possible_update_fields) > 0:
             for id_field in possible_update_fields:
                 try:
-                    url = "/".join([endpoint, id_field, record.pop(id_field)])
-                    response = self.request_api("PATCH", endpoint=url, request_data=record)
+                    url = "/".join([endpoint, id_field, record.get(id_field)])
+                    response = self.request_api("PATCH", endpoint=url, request_data={k: record[k] for k in set(list(record.keys())) - set([id_field])})
                     id = response.json().get("id")
                     self.logger.info(f"{object_type} updated with id: {id}")
                     return
