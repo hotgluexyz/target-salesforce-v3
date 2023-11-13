@@ -778,6 +778,10 @@ class FallbackSink(SalesforceV3Sink):
             url = "/".join([endpoint, object_id])
             try:
                 response = self.request_api("PATCH", endpoint=url, request_data=record)
+                if response.status_code == 204:
+                    self.logger.info(f"{object_type} updated with id: {object_id}")
+                    return
+
                 id = response.json().get("id")
                 self.logger.info(f"{object_type} updated with id: {id}")
                 return
