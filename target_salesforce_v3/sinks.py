@@ -175,9 +175,9 @@ class ContactsSink(SalesforceV3Sink):
 
         return self.validate_output(mapping)
 
-    def process_record(self, record, context):
+    def upsert_record(self, record, context):
         """Process the record."""
-
+        state_updates = dict()
         # Getting custom fields from record
         # self.process_custom_fields(record)
 
@@ -205,7 +205,7 @@ class ContactsSink(SalesforceV3Sink):
                     # Check for campaigns to be added
                     if self.campaigns:
                         self.assign_to_campaign(id,self.campaigns)
-                    return
+                    return id, True, state_updates
                 except Exception as e:
                     self.logger.exception(f"Could not PATCH to {url}: {e}")
         if record:
@@ -217,6 +217,7 @@ class ContactsSink(SalesforceV3Sink):
                 # Check for campaigns to be added
                 if self.campaigns:
                     self.assign_to_campaign(id,self.campaigns)
+                return id, True, state_updates
             except Exception as e:
                 self.logger.exception("Error while attempting to create Contact")
                 raise e
@@ -561,9 +562,10 @@ class CampaignSink(SalesforceV3Sink):
 
         return self.validate_output(mapping)
 
-    def process_record(self, record, context):
+    def upsert_record(self, record, context):
         """Process the record."""
 
+        state_updates = dict()
         # Getting custom fields from record
         # self.process_custom_fields(record)
 
@@ -584,7 +586,7 @@ class CampaignSink(SalesforceV3Sink):
                     )
                     id = response.json().get("id")
                     self.logger.info(f"{self.name} updated with id: {id}")
-                    return
+                    return id, True, state_updates
                 except:
                     self.logger.info(f"{field} with id {record[field]} does not exist. \nWill attepmt to create it.")
                     record = update_record
@@ -597,6 +599,7 @@ class CampaignSink(SalesforceV3Sink):
             response = self.request_api("POST", request_data=record)
             id = response.json().get("id")
             self.logger.info(f"{self.name} created with id: {id}")
+            return id, True, state_updates
         except Exception as e:
             self.logger.exception("Error encountered while creating campaign")
             raise e
@@ -701,6 +704,10 @@ class ActivitiesSink(SalesforceV3Sink):
 class FallbackSink(SalesforceV3Sink):
     endpoint = "sobjects/"
 
+    @property
+    def name(self):
+        return self.stream_name
+
     def get_fields_for_object(self, object_type):
         """Check if Salesforce has an object type and fetches its fields."""
         req = self.request_api("GET")
@@ -735,8 +742,10 @@ class FallbackSink(SalesforceV3Sink):
             return
         record["object_type"] = object_type
         return record
+    
+    def upsert_record(self, record, context):
+        state_updates = dict()
 
-    def process_record(self, record, context):
         object_type = record.pop("object_type", None)
         self.logger.info(f"Processing record for type {self.stream_name}. Using fallback sink.")
 
@@ -780,11 +789,11 @@ class FallbackSink(SalesforceV3Sink):
                 response = self.request_api("PATCH", endpoint=url, request_data=record)
                 if response.status_code == 204:
                     self.logger.info(f"{object_type} updated with id: {object_id}")
-                    return
+                    return object_id, True, state_updates
 
                 id = response.json().get("id")
                 self.logger.info(f"{object_type} updated with id: {id}")
-                return
+                return id, True, state_updates
             except Exception as e:
                 self.logger.exception(f"Error encountered while updating {object_type}")
 
@@ -795,7 +804,7 @@ class FallbackSink(SalesforceV3Sink):
                     response = self.request_api("PATCH", endpoint=url, request_data={k: record[k] for k in set(list(record.keys())) - set([id_field])})
                     id = response.json().get("id")
                     self.logger.info(f"{object_type} updated with id: {id}")
-                    return
+                    return id, True, state_updates
                 except Exception as e:
                     self.logger.exception(f"Could not PATCH to {url}: {e}")
 
@@ -806,7 +815,7 @@ class FallbackSink(SalesforceV3Sink):
             response = self.request_api("POST", endpoint=endpoint, request_data=record)
             id = response.json().get("id")
             self.logger.info(f"{object_type} created with id: {id}")
-            return
+            return id, True, state_updates
         except Exception as e:
             self.logger.exception(f"Error encountered while creating {object_type}")
             raise e
