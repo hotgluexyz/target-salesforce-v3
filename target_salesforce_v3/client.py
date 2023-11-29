@@ -192,8 +192,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             endpoint = self.endpoint
         instance_url = self.config.get("instance_url")
         if not instance_url:
-            self.authenticator
-            instance_url = self.authenticator.instance_url
+            raise Exception("instance_url not defined in config")
         return f"{instance_url}/services/data/{self.api_version}/{endpoint}"
 
     def validate_input(self, record: dict):
