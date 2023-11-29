@@ -118,9 +118,9 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         self.check_salesforce_limits(resp)
         return resp
 
-    def process_record(self, record: dict, context: dict) -> None:
+    def upsert_record(self, record: dict, context: dict) -> None:
         """Process the record."""
-
+        state_updates = dict()
         # Getting custom fields from record
         # self.process_custom_fields(record)
 
@@ -137,7 +137,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
                     )
                     id = response.json().get("id")
                     self.logger.info(f"{self.name} updated with id: {id}")
-                    return
+                    return id, True, state_updates
                 except:
                     self.logger.info(f"{field} with id {record[field]} does not exist.")
 
@@ -149,15 +149,16 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             response = self.request_api("PATCH", endpoint=url, request_data=record)
             response.raise_for_status()
             self.logger.info(f"{self.name} updated with id: {id}")
-            return
+            return id, True, state_updates
 
         response = self.request_api("POST", request_data=record)
         try:
             id = response.json().get("id")
             self.logger.info(f"{self.name} created with id: {id}")
+            return id, True, state_updates
         except:
             pass
-
+    
     @property
     def authenticator(self):
         url = self.url()
