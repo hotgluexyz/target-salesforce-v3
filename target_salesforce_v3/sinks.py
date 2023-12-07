@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-
+import urllib
 from target_salesforce_v3.client import SalesforceV3Sink
 
 from hotglue_models_crm.crm import Contact, Company, Deal, Campaign,Activity
@@ -741,8 +741,17 @@ class FallbackSink(SalesforceV3Sink):
             self.logger.info("Skipping record, because it was not found on Salesforce.")
             return
         record["object_type"] = object_type
+
+        # Try to find object instance
+        if record.get("Email"):
+            query = "".join(["FIND {", record['Email'], "} ", f" IN ALL FIELDS RETURNING {object_type}(id)"])
+            req = self.request_api("GET", "search/", params={"q": query})
+
+            if req.json().get("searchRecords"):
+                record["Id"] = req.json()["searchRecords"][0]["Id"]
+
         return record
-    
+
     def upsert_record(self, record, context):
         state_updates = dict()
 
