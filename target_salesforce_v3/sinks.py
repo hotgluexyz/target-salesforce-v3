@@ -23,7 +23,7 @@ class ContactsSink(SalesforceV3Sink):
     name = Contact.Stream.name
     campaigns = None
     contact_type = "Contact"
-    available_names = ["contacts", "customers"]
+    available_names = ["contacts", "customers", "contact", "customer"]
 
     @cached_property
     def reference_data(self):
@@ -232,7 +232,7 @@ class ContactsSink(SalesforceV3Sink):
                 self.logger.info("INFO: This Contact/Lead is already a Campaign Member.")
             elif '[{"errorCode":"NOT_FOUND","message":"The requested resource does not exist"}]' in response.text:
                 self.logger.info("INFO: This Contact/Lead was not found using Email will attempt to create it.")
-            if '[{"message":"No such column \'HasOptedOutOfEmail\' on sobject of type' in response.text:
+            elif '[{"message":"No such column \'HasOptedOutOfEmail\' on sobject of type' in response.text:
                 self.update_field_permissions(profile = 'System Administrator', sobject_type = self.contact_type, field_name=f"{self.contact_type}.HasOptedOutOfEmail")
                 raise RetriableAPIError(f"DEBUG: HasOptedOutOfEmail column was not found, updating 'Field-Leve Security'\n'System Administrator'[x]")
             else:
@@ -722,7 +722,8 @@ class FallbackSink(SalesforceV3Sink):
         # Check if object exists in Salesforce
         object_type = None
         req = self.request_api("GET", "sobjects")
-        for object in req.json().get("sobjects", []):
+        objects_list = req.json().get("sobjects", [])
+        for object in objects_list:
             is_name = object["name"] == self.stream_name
             is_label = object["label"] == self.stream_name
             is_label_plural = object["labelPlural"] == self.stream_name
@@ -732,14 +733,14 @@ class FallbackSink(SalesforceV3Sink):
                 break
 
         if not object_type:
-            self.logger.info(f"Skipping record, because {self.stream_name} was not found on Salesforce.")
-            return
+            self.logger.info(f"Record doesn't exist on Salesforce {self.stream_name} was not found on Salesforce.")
+            return {}
 
         try:
             fields = self.get_fields_for_object(object_type)
         except MissingObjectInSalesforceError:
             self.logger.info("Skipping record, because it was not found on Salesforce.")
-            return
+            return {}
         record["object_type"] = object_type
 
         # Try to find object instance
@@ -756,6 +757,9 @@ class FallbackSink(SalesforceV3Sink):
         return record
 
     def upsert_record(self, record, context):
+        if record == {} or record is None:
+            return None, False, {}
+
         state_updates = dict()
 
         object_type = record.pop("object_type", None)
