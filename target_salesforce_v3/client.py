@@ -32,7 +32,10 @@ class NoCreatableFieldsException(Exception):
 
 class SalesforceV3Sink(HotglueSink, RecordSink):
     """SalesforceV3 target sink class."""
-    api_version = "v55.0"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.api_version = self.config.get("api_version", "55.0").replace("v", "")
 
     @property
     def http_headers(self) -> dict:
@@ -158,7 +161,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             return id, True, state_updates
         except:
             pass
-    
+
     @property
     def authenticator(self):
         url = self.url()
@@ -193,7 +196,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         instance_url = self.config.get("instance_url")
         if not instance_url:
             raise Exception("instance_url not defined in config")
-        return f"{instance_url}/services/data/{self.api_version}/{endpoint}"
+        return f"{instance_url}/services/data/v{self.api_version}/{endpoint}"
 
     def validate_input(self, record: dict):
         return self.unified_schema(**record).dict()
@@ -323,7 +326,11 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             # `Activity` sObject, so we change `Task` -> `Activity`
             sobject = 'Activity'
 
-        url = self.url("services/Soap/m/55.0").replace('services/data/v55.0/','')
+        url = self.url(
+            f"services/Soap/m/{self.api_version}"
+        ).replace(
+            f'services/data/v{self.api_version}/',''
+        )
 
         # If the new custom field is an external id it needs to contain 'externalid'
         external_id = 'true' if 'externalid' in cf.lower() else 'false'
@@ -380,10 +387,11 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
                         "PermissionsEdit": "true",
                         "PermissionsRead": "true"
                     },
-                    "url": "/services/data/v55.0/sobjects/FieldPermissions/",
+                    "url": f"/services/data/v{self.api_version}/sobjects/FieldPermissions/",
                     "method": "POST"
                 }
             ]
         }
 
         response = self.request_api("POST", endpoint="composite", request_data=payload, headers={"Content-Type": "application/json"})
+        self.logger.info(f"Field permission for {field_name} updated for permission set {permission_set_id}, response: {response.text}")
