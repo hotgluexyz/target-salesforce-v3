@@ -23,7 +23,7 @@ class ContactsSink(SalesforceV3Sink):
     name = Contact.Stream.name
     campaigns = None
     contact_type = "Contact"
-    available_names = ["contacts", "customers", "contact", "customer"]
+    available_names = ["contacts", "customers"]
 
     @cached_property
     def reference_data(self):
@@ -745,10 +745,11 @@ class FallbackSink(SalesforceV3Sink):
 
         # Try to find object instance
         if record.get("Email"):
-            if "+" in record["Email"]:
-                record["Email"] = record["Email"].replace("+", "\+")
+            email_to_check = record.get("Email")
+            if "+" in email_to_check:
+                email_to_check = email_to_check.replace("+", "\+")
 
-            query = "".join(["FIND {", record['Email'], "} ", f" IN ALL FIELDS RETURNING {object_type}(id)"])
+            query = "".join(["FIND {", email_to_check, "} ", f" IN ALL FIELDS RETURNING {object_type}(id)"])
             req = self.request_api("GET", "search/", params={"q": query})
 
             if req.json().get("searchRecords"):

@@ -41,7 +41,7 @@ class TargetSalesforceV3(TargetHotglue):
                 return sink_class
 
             # Search for streams with multiple names
-            if stream_name.lower() in sink_class.available_names: #[name.lower() for name in sink_class.available_names]:
+            if stream_name.lower() in sink_class.available_names:
                 return sink_class
 
         # Adds a fallback sink for streams that are not supported
