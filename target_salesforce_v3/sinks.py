@@ -746,8 +746,11 @@ class FallbackSink(SalesforceV3Sink):
         # Try to find object instance
         if record.get("Email"):
             email_to_check = record.get("Email")
-            if "+" in email_to_check:
-                email_to_check = email_to_check.replace("+", "\+")
+
+            # Escape special characters on email
+            for char in ["+", "-"]:
+                if char in email_to_check:
+                    email_to_check = email_to_check.replace(char, f"\{char}")
 
             query = "".join(["FIND {", email_to_check, "} ", f" IN ALL FIELDS RETURNING {object_type}(id)"])
             req = self.request_api("GET", "search/", params={"q": query})
