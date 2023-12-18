@@ -34,6 +34,15 @@ class ContactsSink(SalesforceV3Sink):
 
     def preprocess_record(self, record: dict, context: dict):
 
+        if isinstance(record.get("addresses"), str):
+            record["addresses"] = json.loads(record["addresses"])
+
+        if isinstance(record.get("phone_numbers"), str):
+            record["phone_numbers"] = json.loads(record.get("phone_numbers"))
+
+        if isinstance(record.get("campaigns"), str):
+            record["campaigns"] = json.loads(record.get("campaigns"))
+
         record = self.validate_input(record)
 
         # Handles creation/update of Leads and Contacts
