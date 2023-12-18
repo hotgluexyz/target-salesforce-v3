@@ -32,7 +32,7 @@ class ContactsSink(SalesforceV3Sink):
         response = response.json()["records"]
         return [{k: v for k, v in r.items() if k in ["Id", "Name"]} for r in response]
 
-    def preprocess_record(self, record, context):
+    def preprocess_record(self, record: dict, context: dict):
 
         if isinstance(record.get("addresses"), str):
             record["addresses"] = json.loads(record["addresses"])
@@ -209,7 +209,6 @@ class ContactsSink(SalesforceV3Sink):
                 except Exception as e:
                     self.logger.exception(f"Could not PATCH to {url}: {e}")
         if record:
-
             try:
                 response = self.request_api("POST", request_data=record)
                 id = response.json().get("id")
@@ -242,7 +241,7 @@ class ContactsSink(SalesforceV3Sink):
                     msg = self.response_error_message(response)
                 raise FatalAPIError(msg)
 
-    def assign_to_campaign(self, contact_id, campaigns):
+    def assign_to_campaign(self,contact_id,campaigns:list) -> None:
         """
         This function recieves a contact_id and a list of campaigns and assigns the contact_id to each campaign
 

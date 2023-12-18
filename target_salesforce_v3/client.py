@@ -47,6 +47,15 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             headers["User-Agent"] = self.config.get("user_agent")
         return headers
 
+    def get_fields_for_object(self, object_type):
+        """Check if Salesforce has an object type and fetches its fields."""
+        req = self.request_api("GET", endpoint="sobjects/")
+        for object in req.json().get("sobjects", []):
+            if object["name"] == object_type or object["label"] == object_type or object["labelPlural"] == object_type:
+                obj_req = self.request_api("GET", endpoint=f"sobjects/{object['name']}/describe").json()
+                return {f["name"]: f for f in obj_req.get("fields", [])}
+
+
     def validate_response(self, response: requests.Response) -> None:
         """Validate HTTP response."""
         if response.status_code in [429] or 500 <= response.status_code < 600:
@@ -307,7 +316,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             if cf_name not in salesforce_custom_fields:
                 # If there's a custom field in the record that is not in Salesforce
                 # create it
-                self.add_custom_field(cf['name'],label = cf.get('label'))
+                self.add_custom_field(cf['name'], label = cf.get('label'))
 
         return None
 
