@@ -61,7 +61,6 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
                 obj_req = self.request_api("GET", endpoint=f"sobjects/{object['name']}/describe").json()
                 return {f["name"]: f for f in obj_req.get("fields", [])}
 
-
     def validate_response(self, response: requests.Response) -> None:
         """Validate HTTP response."""
         if response.status_code in [429] or 500 <= response.status_code < 600:
