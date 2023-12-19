@@ -38,6 +38,12 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         self.api_version = self.config.get("api_version", "55.0").replace("v", "")
 
     @property
+    def permission_set_ids(self):
+        params = {"q": "SELECT Id FROM PermissionSet"}
+        response = self.request_api("GET", endpoint="query", params=params, headers={"Content-Type": "application/json"})
+        return [r["Id"] for r in response.json()["records"]]
+
+    @property
     def http_headers(self) -> dict:
         """Return the http headers needed."""
         headers = {}
@@ -54,7 +60,6 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             if object["name"] == object_type or object["label"] == object_type or object["labelPlural"] == object_type:
                 obj_req = self.request_api("GET", endpoint=f"sobjects/{object['name']}/describe").json()
                 return {f["name"]: f for f in obj_req.get("fields", [])}
-
 
     def validate_response(self, response: requests.Response) -> None:
         """Validate HTTP response."""

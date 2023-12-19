@@ -43,6 +43,9 @@ class ContactsSink(SalesforceV3Sink):
         if isinstance(record.get("campaigns"), str):
             record["campaigns"] = json.loads(record.get("campaigns"))
 
+        if record.get("company") and not record.get("company_name"):
+            record["company_name"] = record["company"]
+
         record = self.validate_input(record)
 
         # Handles creation/update of Leads and Contacts
