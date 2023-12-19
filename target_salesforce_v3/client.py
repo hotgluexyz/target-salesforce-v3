@@ -38,6 +38,12 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         self.api_version = self.config.get("api_version", "55.0").replace("v", "")
 
     @property
+    def permission_set_ids(self):
+        params = {"q": "SELECT Id FROM PermissionSet"}
+        response = self.request_api("GET", endpoint="query", params=params, headers={"Content-Type": "application/json"})
+        return [r["Id"] for r in response.json()["records"]]
+
+    @property
     def http_headers(self) -> dict:
         """Return the http headers needed."""
         headers = {}
@@ -380,7 +386,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             # But then, we need to add the permissions to the Task sObject
             # So we change it back again from `Activity` -> `Task`
             sobject = 'Task'
-        for permission_set_id in getattr(self, "permission_set_ids", []):
+        for permission_set_id in self.permission_set_ids:
             self.update_field_permissions(permission_set_id, sobject_type=sobject, field_name=f"{sobject}.{cf}")
 
     def update_field_permissions(self,permission_set_id, sobject_type, field_name):
