@@ -18,7 +18,7 @@ backports-cached-property = "^1.0.2"
 hotglue-models-crm = { git = "https://gitlab.com/hotglue/hotglue-models-crm.git", branch = "master"}
 
 [tool.poetry.dev-dependencies]
-pytest = "^7.4.0"
+pytest = "^7.4.4"
 
 [tool.ruff]
 ignore = [
