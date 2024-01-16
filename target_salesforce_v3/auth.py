@@ -104,7 +104,14 @@ class SalesforceV3Authenticator:
             return
         auth_request_payload = self.oauth_request_payload
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        if self._target._config.get("is_sandbox"):
+
+        is_sandbox = (
+            self._target._config.get("base_uri") == "https://test.salesforce.com"
+            if self._target._config.get("base_uri")
+            else self._target._config.get("is_sandbox")
+        )
+
+        if is_sandbox:
             login_url = 'https://test.salesforce.com/services/oauth2/token'
         else:
             login_url = 'https://login.salesforce.com/services/oauth2/token'
