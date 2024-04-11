@@ -745,10 +745,10 @@ class FallbackSink(SalesforceV3Sink):
             return {}
         record["object_type"] = object_type
 
-        # Try to find object instance
-        if record.get("Email"):
-            email_to_check = record.get("Email")
-
+        # Try to find object instance using email
+        email_fields = ["Email", "npe01__AlternateEmail__c", "npe01__HomeEmail__c", "npe01__Preferred_Email__c", "npe01__WorkEmail__c"]
+        email_values = [record.get(email_field) for email_field in email_fields if record.get(email_field)]
+        for email_to_check in email_values:
             # Escape special characters on email
             for char in ["+", "-"]:
                 if char in email_to_check:
@@ -759,7 +759,8 @@ class FallbackSink(SalesforceV3Sink):
 
             if req.json().get("searchRecords"):
                 record["Id"] = req.json()["searchRecords"][0]["Id"]
-
+                break
+        
         return record
 
     def upsert_record(self, record, context):
