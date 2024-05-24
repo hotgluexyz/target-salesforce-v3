@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from singer_sdk import typing as th
 from target_hotglue.target import TargetHotglue
+import copy
 
 from target_salesforce_v3.sinks import (
     FallbackSink,
@@ -34,6 +35,11 @@ class TargetSalesforceV3(TargetHotglue):
     name = "target-salesforce-v3"
     MAX_PARALLELISM = 10
     SINK_TYPES = SINK_TYPES
+    sobjects = {}
+    current_sink_name = None
+    current_fields = {}
+    hit_rate_limit = False
+
     def get_sink_class(self, stream_name: str):
         """Get sink for a stream."""
         for sink_class in SINK_TYPES:
