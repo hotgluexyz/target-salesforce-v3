@@ -743,8 +743,7 @@ class FallbackSink(SalesforceV3Sink):
                         break
 
                 if not object_type:
-                    self.logger.info(f"Record doesn't exist on Salesforce {self.stream_name} was not found on Salesforce.")
-                    return {}
+                    return {"error": f"Object {object_type} doesn't exist on Salesforce"}
 
                 # get record fields
                 try:
@@ -783,7 +782,7 @@ class FallbackSink(SalesforceV3Sink):
 
     def upsert_record(self, record, context):
         # Not process records if target hit API rate limits
-        if record.get("error") and self._target.hit_rate_limit:
+        if record.get("error"):
             return None, False, record
         if record:
             state_updates = dict()
