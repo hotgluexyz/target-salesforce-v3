@@ -743,7 +743,7 @@ class FallbackSink(SalesforceV3Sink):
                         break
 
                 if not object_type:
-                    return {"error": f"Object {object_type} doesn't exist on Salesforce"}
+                    return {"error": f"Object not found for {self.name} in Salesforce"}
 
                 # get record fields
                 try:
