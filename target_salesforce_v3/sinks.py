@@ -777,9 +777,8 @@ class FallbackSink(SalesforceV3Sink):
 
                 query = "".join(["FIND {", email_to_check, "} ", f" IN ALL FIELDS RETURNING {object_type}(id)"])
                 req = self.request_api("GET", "search/", params={"q": query})
-
-                if req.json().get("searchRecords"):
-                    req = req.json().get("searchRecords")
+                req = req.json().get("searchRecords")
+                if req:
                     break
 
         # if record already exists add its Id for patching           
