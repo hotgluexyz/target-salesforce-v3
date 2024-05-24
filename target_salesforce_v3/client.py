@@ -98,6 +98,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         percent_used_from_total = (remaining / allotted) * 100
 
         if percent_used_from_total > quota_percent_total:
+            self._target.hit_rate_limit = True
             total_message = (
                 "Salesforce has reported {}/{} ({:3.2f}%) total REST quota "
                 "used across all Salesforce Applications. Terminating "
@@ -233,8 +234,11 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             sobject = self.request_api("GET", f"sobjects/{object_type}/describe/")
         return [f for f in sobject.json()["fields"]]
 
-    def sf_fields_description(self, object_type=None):
-        fld = self.sf_fields(object_type=object_type)
+    def sf_fields_description(self, object_type=None, object_fields=None):
+        if not object_fields:
+            fld = self.sf_fields(object_type=object_type)
+        fld = object_fields
+        
         fields = {}
         fields["createable"] = [
             f["name"] for f in fld if f["createable"] and not f["custom"]
