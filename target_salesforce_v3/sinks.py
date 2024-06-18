@@ -77,7 +77,7 @@ class ContactsSink(SalesforceV3Sink):
             "Salutation": salutation,
             "Birthdate": birthdate,
             "OwnerId": record.get("owner_id"),
-            "HasOptedOutOfEmail": record.get("unsubscribed"),
+            "HasOptedOutOfEmail": record.get("unsubscribed") or record.get("subscribe_status") == "unsubscribed" if record.get("subscribe_status") else None,
             "NumberOfEmployees": record.get("number_of_employees"),
             "Website": record.get("website"),
             "Industry": industry,
