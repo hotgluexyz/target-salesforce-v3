@@ -45,6 +45,10 @@ class ContactsSink(SalesforceV3Sink):
 
         if record.get("company") and not record.get("company_name"):
             record["company_name"] = record["company"]
+        
+        # if unsubscribed is not get value from unsubscribed_status
+        # assign value to unsubscribed because unsubscribed_status is not a valid model field
+        record["unsubscribed"] = record.get("unsubscribed") if record.get("unsubscribed") is not None else record.get("subscribe_status") == "unsubscribed"
 
         record = self.validate_input(record)
 
@@ -77,9 +81,7 @@ class ContactsSink(SalesforceV3Sink):
             "Salutation": salutation,
             "Birthdate": birthdate,
             "OwnerId": record.get("owner_id"),
-            "HasOptedOutOfEmail": record.get("unsubscribed")
-            if record.get("unsubscribed") is not None
-            else record.get("subscribe_status") == "unsubscribed",            
+            "HasOptedOutOfEmail": record.get("unsubscribed"),            
             "NumberOfEmployees": record.get("number_of_employees"),
             "Website": record.get("website"),
             "Industry": industry,
