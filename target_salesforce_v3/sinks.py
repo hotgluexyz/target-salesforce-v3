@@ -34,6 +34,7 @@ class ContactsSink(SalesforceV3Sink):
 
     def preprocess_record(self, record: dict, context: dict):
 
+        # Parse data
         if isinstance(record.get("addresses"), str):
             record["addresses"] = json.loads(record["addresses"])
 
@@ -67,6 +68,7 @@ class ContactsSink(SalesforceV3Sink):
 
         # fields = self.sf_fields_description
 
+        # map data
         mapping = {
             "FirstName": record.get("first_name"),
             "LastName": record.get("last_name"),
@@ -98,12 +100,17 @@ class ContactsSink(SalesforceV3Sink):
         elif self.contact_type == "Lead":
             mapping.update({"Company": record.get("company_name")})
 
+
+        # check if record already exists
+        lookup_field = None
         if record.get('id'):
             # If contact has an Id will use it to updatev
             mapping.update({"Id": record['id']})
+            lookup_field = f"Id = '{record['id']}'"
         elif record.get("external_id"):
             external_id = record["external_id"]
             mapping[external_id["name"]] = external_id["value"]
+            lookup_field = f"{external_id['name']} = '{external_id['value']}'"
         else:
             # If no Id we'll use email to search for an existing record
             if record.get('email'):
@@ -113,7 +120,9 @@ class ContactsSink(SalesforceV3Sink):
                     fields = ['Name', 'Id']
                 )
                 if data:
-                    mapping.update({"Id":data[0].get("Id")})
+                    id = data[0].get("Id")
+                    mapping.update({"Id":id})
+                    lookup_field = f"Id = '{id}'"
 
         if record.get('campaigns'):
             self.campaigns = record['campaigns']
@@ -178,7 +187,14 @@ class ContactsSink(SalesforceV3Sink):
             )
             mapping["AccountId"] = next(account_id, None)
 
-        return self.validate_output(mapping)
+        # validate mapping
+        mapping = self.validate_output(mapping)
+        
+        # If flag only_upsert_empty_fields is true, only upsert empty fields
+        if self.config.get("only_upsert_empty_fields") and lookup_field:
+            mapping = self.map_only_empty_fields(mapping, self.contact_type, lookup_field)
+
+        return mapping
 
     def upsert_record(self, record, context):
         """Process the record."""
@@ -367,11 +383,19 @@ class DealsSink(SalesforceV3Sink):
                     cf['name'] += '__c'
                 mapping.update({cf['name']:cf['value']})
 
+        lookup_field = None
         if record.get("external_id"):
             external_id = record["external_id"]
             mapping[external_id["name"]] = external_id["value"]
+            lookup_field = f'{external_id["name"]} = {external_id["value"]}'
 
-        return self.validate_output(mapping)
+        mapping = self.validate_output(mapping)
+
+        # If flag only_upsert_empty_fields is true, only upsert empty fields
+        if self.config.get("only_upsert_empty_fields") and lookup_field:
+            mapping = self.map_only_empty_fields(mapping, "Opportunity", lookup_field)
+
+        return mapping
 
 
 class CompanySink(SalesforceV3Sink):
@@ -564,7 +588,15 @@ class CampaignSink(SalesforceV3Sink):
                     cf['name'] += '__c'
                 mapping.update({cf['name']:cf['value']})
 
-        return self.validate_output(mapping)
+        mapping = self.validate_output(mapping)
+
+        # If flag only_upsert_empty_fields is true, only upsert empty fields
+        if self.config.get("only_upsert_empty_fields") and mapping.get("Id"):
+            lookup_field = f"Id = {mapping['Id']}"
+            mapping = self.map_only_empty_fields(mapping, "Campaign", lookup_field)
+
+        return mapping
+
 
     def upsert_record(self, record, context):
         """Process the record."""
@@ -651,7 +683,14 @@ class CampaignMemberSink(SalesforceV3Sink):
                     cf['name'] += '__c'
                 mapping.update({cf['name']:cf['value']})
 
-        return self.validate_output(mapping)
+        mapping = self.validate_output(mapping)
+        
+        # If flag only_upsert_empty_fields is true, only upsert empty fields
+        if self.config.get("only_upsert_empty_fields") and mapping.get("Id"):
+            lookup_field = f"Id = {mapping['Id']}"
+            mapping = self.map_only_empty_fields(mapping, "CampaignMember", lookup_field)
+
+        return mapping
 
     def get_campaign_member_id(self, contact_id, campaign_id, contact_lookup = 'ContactId'):
 
@@ -702,7 +741,14 @@ class ActivitiesSink(SalesforceV3Sink):
                     cf['name'] += '__c'
                 mapping.update({cf['name']:cf['value']})
 
-        return self.validate_output(mapping)
+        mapping = self.validate_output(mapping)
+
+        # If flag only_upsert_empty_fields is true, only upsert empty fields
+        if self.config.get("only_upsert_empty_fields") and mapping.get("Id"):
+            lookup_field = f"Id = {mapping['Id']}"
+            mapping = self.map_only_empty_fields(mapping, "Task", lookup_field)
+
+        return mapping
 
 
 class FallbackSink(SalesforceV3Sink):
