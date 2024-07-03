@@ -126,8 +126,8 @@ class ContactsSink(SalesforceV3Sink):
 
         if record.get('campaigns'):
             self.campaigns = record['campaigns']
-        else:
-            self.campaigns = None
+        if not self.campaigns and record.get("lists"):
+            self.campaigns = [{"name": list_item} for list_item in record.get("lists")]
 
         if record.get("addresses"):
             address = record["addresses"][0]
@@ -302,11 +302,9 @@ class ContactsSink(SalesforceV3Sink):
 
                 id = response.json().get("id")
                 self.logger.info(f"CampaignMember created with id: {id}")
-                # Check for campaigns to be added
-                if self.campaigns:
-                    self.assign_to_campaign(id,self.campaigns)
             except Exception as e:
                 self.logger.exception("Error encountered while creating CampaignMember")
+                error = f"error: {e}, response: {response.json()}"
                 raise e
 
 
