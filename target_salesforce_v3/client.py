@@ -236,29 +236,28 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
 
     def sf_fields_description(self, object_type=None, object_fields=None):
         if not object_fields:
-            fld = self.sf_fields(object_type=object_type)
-        fld = object_fields
+            object_fields = self.sf_fields(object_type=object_type)
         
         fields = {}
         fields["createable"] = [
-            f["name"] for f in fld if f["createable"] and not f["custom"]
+            f["name"] for f in object_fields if f["createable"] and not f["custom"]
         ]
         fields["custom"] = [
-            f["name"] for f in fld if f["custom"]
+            f["name"] for f in object_fields if f["custom"]
         ]
         fields["createable_not_default"] = [
             f["name"]
-            for f in fld
+            for f in object_fields
             if f["createable"] and not f["defaultedOnCreate"] and not f["custom"]
         ]
         fields["required"] = [
             f["name"]
-            for f in fld
+            for f in object_fields
             if not f["nillable"] and f["createable"] and not f["defaultedOnCreate"]
         ]
-        fields["external_ids"] = [f["name"] for f in fld if f["externalId"]]
+        fields["external_ids"] = [f["name"] for f in object_fields if f["externalId"]]
         fields["pickable"] = {}
-        for field in fld:
+        for field in object_fields:
             if field["picklistValues"]:
                 fields["pickable"][field["name"]] = [
                     p["label"] for p in field["picklistValues"] if p["active"]
