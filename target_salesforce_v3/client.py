@@ -152,6 +152,9 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         # Getting custom fields from record
         # self.process_custom_fields(record)
 
+        if not record:
+            return "", True, {"state": "no fields to post or update"}
+
         fields = self.sf_fields_description()
 
         for field in fields["external_ids"]:
@@ -301,10 +304,12 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         #         raise MissingRequiredFieldException(req_field)
         return payload
 
-    def query_sobject(self, query, fields):
+    def query_sobject(self, query, fields=None):
         params = {"q": query}
         response = self.request_api("GET", endpoint="query", params=params)
         response = response.json()["records"]
+        if not fields:
+            return response
         return [{k: v for k, v in r.items() if k in fields} for r in response]
 
     def process_custom_fields(self, record) -> None:
@@ -420,3 +425,13 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
 
         response = self.request_api("POST", endpoint="composite", request_data=payload, headers={"Content-Type": "application/json"})
         self.logger.info(f"Field permission for {field_name} updated for permission set {permission_set_id}, response: {response.text}")
+    
+
+    def map_only_empty_fields(self, mapping, sobject_name, lookup_field):       
+        fields = ",".join([field for field in mapping.keys()])
+        data = self.query_sobject(
+            query = f"SELECT {fields} from {sobject_name} WHERE {lookup_field}",
+        )
+        if data:
+            mapping = {k:v for k,v in mapping.items() if not data[0].get(k) or k == "Id"}
+        return mapping
