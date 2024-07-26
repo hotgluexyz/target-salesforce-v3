@@ -52,6 +52,10 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         if "user_agent" in self.config:
             headers["User-Agent"] = self.config.get("user_agent")
         return headers
+    
+    @property
+    def lookup_fields_dict(self):
+        return self.config.get("lookup_fields") or {}
 
     def get_fields_for_object(self, object_type):
         """Check if Salesforce has an object type and fetches its fields."""
@@ -427,11 +431,26 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         self.logger.info(f"Field permission for {field_name} updated for permission set {permission_set_id}, response: {response.text}")
     
 
-    def map_only_empty_fields(self, mapping, sobject_name, lookup_field):       
-        fields = ",".join([field for field in mapping.keys()])
+    def map_only_empty_fields(self, mapping, sobject_name, lookup_filter):
+        fields = [field for field in mapping.keys()]
+        if "Id" not in fields:
+            fields.append("Id")   
+        fields = ",".join(fields)
         data = self.query_sobject(
-            query = f"SELECT {fields} from {sobject_name} WHERE {lookup_field}",
+            query = f"SELECT {fields} from {sobject_name} WHERE {lookup_filter}",
         )
         if data:
-            mapping = {k:v for k,v in mapping.items() if not data[0].get(k) or k == "Id"}
+            existing_record = data[0]
+            mapping.update({"Id": existing_record["Id"]})
+            mapping = {k:v for k,v in mapping.items() if not existing_record.get(k) or k == "Id"}
         return mapping
+    
+
+    def get_lookup_filter(self, lookup_values, method):
+        conditions = []
+        if lookup_values:
+            query_operator = "AND" if method == "all" else "OR"
+            for field, value in lookup_values.items():
+                conditions.append(f"{field} = '{value}'")
+
+            return f" {query_operator} ".join(conditions)
