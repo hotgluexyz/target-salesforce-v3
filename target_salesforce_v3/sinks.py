@@ -33,7 +33,7 @@ class ContactsSink(SalesforceV3Sink):
         return [{k: v for k, v in r.items() if k in ["Id", "Name"]} for r in response]
 
     def preprocess_record(self, record: dict, context: dict):
-
+        # 1. Map and process record
         # Parse data
         if isinstance(record.get("addresses"), str):
             record["addresses"] = json.loads(record["addresses"])
@@ -100,30 +100,6 @@ class ContactsSink(SalesforceV3Sink):
         elif self.contact_type == "Lead":
             mapping.update({"Company": record.get("company_name")})
 
-
-        # check if record already exists
-        lookup_field = None
-        if record.get('id'):
-            # If contact has an Id will use it to updatev
-            mapping.update({"Id": record['id']})
-            lookup_field = f"Id = '{record['id']}'"
-        elif record.get("external_id"):
-            external_id = record["external_id"]
-            mapping[external_id["name"]] = external_id["value"]
-            lookup_field = f"{external_id['name']} = '{external_id['value']}'"
-        else:
-            # If no Id we'll use email to search for an existing record
-            if record.get('email'):
-                # Get contact_id based on email
-                data = self.query_sobject(
-                    query = f"SELECT Name, Id from {self.contact_type} WHERE Email = '{record.get('email')}'",
-                    fields = ['Name', 'Id']
-                )
-                if data:
-                    id = data[0].get("Id")
-                    mapping.update({"Id":id})
-                    lookup_field = f"Id = '{id}'"
-
         if record.get('campaigns'):
             self.campaigns = record['campaigns']
         if not self.campaigns and record.get("lists"):
@@ -189,6 +165,40 @@ class ContactsSink(SalesforceV3Sink):
 
         # validate mapping
         mapping = self.validate_output(mapping)
+
+        # 2. Check if record exist based on default lookup_fields or lookup_fields set in config
+        lookup_field = None
+        lookup_method = self.config.get("lookup_method", "sequential")
+        # check if record already exists
+        if record.get('id'):
+            # If contact has an Id will use it to updatev
+            mapping.update({"Id": record['id']})
+            lookup_field = f"Id = '{record['id']}'"
+        # if lookup_fields set for unified sinks check those first
+        elif self.lookup_fields_dict.get(self.contact_type):
+            lookup_values = {
+                field: mapping.get(field)
+                for field in self.lookup_fields_dict.get(self.contact_type)
+                if field in mapping
+            }
+            if lookup_values:
+                lookup_field = self.get_lookup_filter(lookup_values, lookup_method)
+        elif record.get("external_id"):
+            external_id = record["external_id"]
+            mapping[external_id["name"]] = external_id["value"]
+            lookup_field = f"{external_id['name']} = '{external_id['value']}'"
+        else:
+            # If no Id we'll use email to search for an existing record
+            if record.get('email'):
+                # Get contact_id based on email
+                data = self.query_sobject(
+                    query = f"SELECT Name, Id from {self.contact_type} WHERE Email = '{record.get('email')}'",
+                    fields = ['Name', 'Id']
+                )
+                if data:
+                    id = data[0].get("Id")
+                    mapping.update({"Id":id})
+                    lookup_field = f"Id = '{id}'"
         
         # If flag only_upsert_empty_fields is true, only upsert empty fields
         if self.config.get("only_upsert_empty_fields") and lookup_field:
@@ -322,6 +332,7 @@ class DealsSink(SalesforceV3Sink):
         return [{k: v for k, v in r.items() if k in ["Id", "Name"]} for r in response]
 
     def preprocess_record(self, record, context):
+        #1. Map and process record
         if isinstance(record.get("custom_fields"), str):
             record["custom_fields"] = json.loads(record["custom_fields"])
 
@@ -381,8 +392,18 @@ class DealsSink(SalesforceV3Sink):
                     cf['name'] += '__c'
                 mapping.update({cf['name']:cf['value']})
 
+        # 2. get record using lookup_fields
         lookup_field = None
-        if record.get("external_id"):
+        lookup_method = self.config.get("lookup_method", "sequential")
+        if self.lookup_fields_dict.get(self.name):
+            lookup_values = {
+                field: mapping.get(field)
+                for field in self.lookup_fields_dict.get(self.name)
+                if field in mapping
+            }
+            if lookup_values:
+                lookup_field = self.get_lookup_filter(lookup_values, lookup_method)
+        elif record.get("external_id"):
             external_id = record["external_id"]
             mapping[external_id["name"]] = external_id["value"]
             lookup_field = f'{external_id["name"]} = {external_id["value"]}'
@@ -551,7 +572,7 @@ class CampaignSink(SalesforceV3Sink):
     available_names = ["campaigns"]
 
     def preprocess_record(self, record, context):
-
+        # 1. Process record
         record = self.validate_input(record)
 
         # fields = self.sf_fields_description
@@ -588,11 +609,23 @@ class CampaignSink(SalesforceV3Sink):
 
         mapping = self.validate_output(mapping)
 
-        # If flag only_upsert_empty_fields is true, only upsert empty fields
-        if self.config.get("only_upsert_empty_fields") and mapping.get("Id"):
+        # 2. Get record using lookup_fields
+        lookup_field = None
+        lookup_method = self.config.get("lookup_method", "sequential")
+        if self.lookup_fields_dict.get(self.name):
+            lookup_values = {
+                field: mapping.get(field)
+                for field in self.lookup_fields_dict.get(self.name)
+                if field in mapping
+            }
+            if lookup_values:
+                lookup_field = self.get_lookup_filter(lookup_values, lookup_method)
+        elif mapping.get("Id"):
             lookup_field = f"Id = {mapping['Id']}"
-            mapping = self.map_only_empty_fields(mapping, "Campaign", lookup_field)
 
+        # If flag only_upsert_empty_fields is true, only upsert empty fields
+        if self.config.get("only_upsert_empty_fields") and lookup_field:
+            mapping = self.map_only_empty_fields(mapping, "Campaign", lookup_field)
         return mapping
 
 
@@ -646,7 +679,7 @@ class CampaignMemberSink(SalesforceV3Sink):
     available_names = ["campaignmembers"]
 
     def preprocess_record(self, record, context) -> dict:
-
+        # 1. Map and process record
         mapping = {
             "CampaignId": record.get("campaign_id"),
             # "Description": record.get("description"),
@@ -683,9 +716,22 @@ class CampaignMemberSink(SalesforceV3Sink):
 
         mapping = self.validate_output(mapping)
         
-        # If flag only_upsert_empty_fields is true, only upsert empty fields
-        if self.config.get("only_upsert_empty_fields") and mapping.get("Id"):
+        # 2. Get record using lookup_fields
+        lookup_field = None
+        lookup_method = self.config.get("lookup_method", "sequential")
+        if self.lookup_fields_dict.get(self.name):
+            lookup_values = {
+                field: mapping.get(field)
+                for field in self.lookup_fields_dict.get(self.name)
+                if field in mapping
+            }
+            if lookup_values:
+                lookup_field = self.get_lookup_filter(lookup_values, lookup_method)
+        elif mapping.get("Id"):
             lookup_field = f"Id = {mapping['Id']}"
+
+        # If flag only_upsert_empty_fields is true, only upsert empty fields
+        if self.config.get("only_upsert_empty_fields") and lookup_field:
             mapping = self.map_only_empty_fields(mapping, "CampaignMember", lookup_field)
 
         return mapping
@@ -708,7 +754,7 @@ class ActivitiesSink(SalesforceV3Sink):
     available_names = ["activities"]
 
     def preprocess_record(self, record, context):
-
+        # 1. Map and process record 
         record = self.validate_input(record)
 
         # fields = self.sf_fields_description
@@ -741,9 +787,22 @@ class ActivitiesSink(SalesforceV3Sink):
 
         mapping = self.validate_output(mapping)
 
-        # If flag only_upsert_empty_fields is true, only upsert empty fields
-        if self.config.get("only_upsert_empty_fields") and mapping.get("Id"):
+        # 2. Get record using lookup_fields
+        lookup_field = None
+        lookup_method = self.config.get("lookup_method", "sequential")
+        if self.lookup_fields_dict.get(self.name):
+            lookup_values = {
+                field: mapping.get(field)
+                for field in self.lookup_fields_dict.get(self.name)
+                if field in mapping
+            }
+            if lookup_values:
+                lookup_field = self.get_lookup_filter(lookup_values, lookup_method)
+        elif mapping.get("Id"):
             lookup_field = f"Id = {mapping['Id']}"
+
+        # If flag only_upsert_empty_fields is true, only upsert empty fields
+        if self.config.get("only_upsert_empty_fields") and lookup_field:
             mapping = self.map_only_empty_fields(mapping, "Task", lookup_field)
 
         return mapping
@@ -753,12 +812,24 @@ class FallbackSink(SalesforceV3Sink):
     endpoint = "sobjects/"
 
     @property
-    def lookup_fields_dict(self):
-        return self.config.get("lookup_fields") or {}
-
-    @property
     def name(self):
         return self.stream_name
+    
+    def get_record(self, lookup_values, object_type, fields, record, method):
+        # get select fields for query
+        query_fields = [field for field in fields.keys() if field in record]
+        # add Id field to query_fields if it's not there
+        if "Id" not in query_fields:
+            query_fields.append("Id")
+        query_fields = ",".join(query_fields)
+
+        # get filter for query
+        query_filter = self.get_lookup_filter(lookup_values, method)
+        # execute query
+        query = f"SELECT {query_fields} FROM {object_type} WHERE {query_filter}"
+        req = self.request_api("GET", "queryAll", params={"q": query})
+        req = req.json().get("records")
+        return req
 
     def get_fields_for_object(self, object_type):
         """Check if Salesforce has an object type and fetches its fields."""
@@ -796,20 +867,25 @@ class FallbackSink(SalesforceV3Sink):
         record["object_type"] = object_type
 
         # If lookup_fields dict exist in config use it to check if the record exists in Salesforce
-        object_lookup_field = self.lookup_fields_dict.get(object_type)
-        # check if the lookup field exists for the object
-        object_lookup_field = object_lookup_field if object_lookup_field in fields else None
-        # check if the record has a value for the lookup field
-        lookup_value = record.get(object_lookup_field)
+        _lookup_fields = self.lookup_fields_dict.get(object_type)
+        lookup_method = self.config.get("lookup_method", "sequential")
+        # Standarize lookup fields as a list of strings
+        if isinstance(_lookup_fields, str):
+            _lookup_fields = [_lookup_fields]
+        # check if the lookup fields exist for the object
+        _lookup_fields = [field for field in _lookup_fields if field in fields]
+        # get all the values for all lookup fields
+        lookup_values = {field: record.get(field) for field in _lookup_fields}
 
         req = None
         # lookup for record with field from config
-        if object_lookup_field and lookup_value:
-            query_fields = ",".join([field for field in fields.keys() if field in record] + ["Id"])
-            query = f"SELECT {query_fields} FROM {object_type} WHERE {object_lookup_field} = '{lookup_value}'"
-            req = self.request_api("GET", "queryAll", params={"q": query})
-            req = req.json().get("records")
-        # lookup for record with email fields
+        if lookup_values:
+            if lookup_method == "all" and len(lookup_values) != len(_lookup_fields):
+                self.logger.info(f"Skipping lookup for record {record} because lookup_method is set to 'all' but not all fields have valid values")
+            else:
+                req = self.get_record(lookup_values, object_type, fields, record, lookup_method)
+
+        # If no lookup fields set lookup by email fields
         else:
             # Try to find object instance using email
             email_fields = ["Email", "npe01__AlternateEmail__c", "npe01__HomeEmail__c", "npe01__Preferred_Email__c", "npe01__WorkEmail__c"]
