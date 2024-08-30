@@ -227,7 +227,12 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         return f"{instance_url}/services/data/v{self.api_version}/{endpoint}"
 
     def validate_input(self, record: dict):
-        return self.unified_schema(**record).dict()
+        if not record:
+            return {}
+        if isinstance(record,dict):
+            return self.unified_schema(**record).dict()
+        else:
+            raise Exception(f"Invalid record: {record}")
 
     def sf_fields(self, object_type=None):
         if not object_type:
