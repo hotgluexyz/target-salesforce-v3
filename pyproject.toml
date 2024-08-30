@@ -44,5 +44,6 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 # CLI declaration
+target-salesforce = 'target_salesforce_v3.target:TargetSalesforceV3.cli'
 target-salesforce-v2 = 'target_salesforce_v3.target:TargetSalesforceV3.cli'
 target-salesforce-v3 = 'target_salesforce_v3.target:TargetSalesforceV3.cli'
