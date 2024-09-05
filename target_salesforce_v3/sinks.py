@@ -12,9 +12,9 @@ from dateutil.parser import parse
 from datetime import datetime
 from singer_sdk.exceptions import FatalAPIError, RetriableAPIError
 
+from target_salesforce_v3.exceptions import InvalidDealRecord, MissingObjectInSalesforceError
 
-class MissingObjectInSalesforceError(Exception):
-    pass
+
 
 
 class ContactsSink(SalesforceV3Sink):
@@ -391,83 +391,99 @@ class DealsSink(SalesforceV3Sink):
     def reference_data(self):
         params = {"q": "SELECT id, name from Account"}
         response = self.request_api("GET", endpoint="query", params=params)
-        response = response.json()["records"]
+        response = response.json().get("records",[])
         return [{k: v for k, v in r.items() if k in ["Id", "Name"]} for r in response]
 
     def preprocess_record(self, record, context):
-        if isinstance(record.get("custom_fields"), str):
-            record["custom_fields"] = json.loads(record["custom_fields"])
+        try:
+            has_name = record.get("title")
+            has_stage_name = (record.get("pipeline_stage_id") or record.get("status"))
+            has_close_date = record.get("close_date")
+            if not (has_name and has_stage_name and has_close_date):
+                raise InvalidDealRecord(
+                                        f'The record does not contain all the necessary fields for creating a new Opportunity: '
+                                        f'Name (title: {has_name}), '
+                                        f'StageName (pipeline_stage_id: {record.get("pipeline_stage_id")} or status: {record.get("status")}), '
+                                        f'CloseDate (close_date: {has_close_date})'
+                                    )
+        
+            if isinstance(record.get("custom_fields"), str):
+                try:
+                    record["custom_fields"] = json.loads(record["custom_fields"])
+                except:
+                    self.logger.info(f"custom_fields is not a valid Json document: {record['custom_fields']}")
 
-        record = self.validate_input(record)
+            record = self.validate_input(record)
 
-        stage = record.get("pipeline_stage_id")
-        if not stage:
-            stage = record.get("status") # fallback on field
+            record_stage = record.get("pipeline_stage_id")
+            if not record_stage:
+                record_stage = record.get("status") # fallback on field
 
-        stage = self.get_pickable(stage, "StageName", select_first=True)
+            record_stage = self.get_pickable(record_stage, "StageName", select_first=True)
 
-        type = record.get("type")
-        type = self.get_pickable(type, "Type")
+            record_type = record.get("type")
+            record_type = self.get_pickable(record_type, "Type")
 
-        if record.get("contact_external_id") and not record.get("contact_id"):
-            external_id = record["contact_external_id"]
-            url = "/".join(["sobjects/Contact", external_id["name"], external_id["value"]])
-            response = self.request_api("GET", endpoint=url)
-            record["contact_id"] = response.json().get("Id")
-        else:
-            # Tries to get contact_id and account_id from email
-            data = self.query_sobject(
-                query = f"SELECT Id, AccountId from Contact WHERE Email = '{record.get('contact_email')}'",
-                fields = ['Id', 'AccountId']
-            )
-            if len(data) > 0:
-                record["contact_id"] = data[0].get("Id")
-                record["company_id"] = data[0].get("AccountId")
+            if record.get("contact_external_id") and not record.get("contact_id"):
+                external_id = record["contact_external_id"]
+                url = "/".join(["sobjects/Contact", external_id["name"], external_id["value"]])
+                response = self.request_api("GET", endpoint=url)
+                record["contact_id"] = response.json().get("Id")
+            else:
+                # Tries to get contact_id and account_id from email
+                data = self.query_sobject(
+                    query = f"SELECT Id, AccountId from Contact WHERE Email = '{record.get('contact_email')}'",
+                    fields = ['Id', 'AccountId']
+                )
+                if len(data) > 0:
+                    record["contact_id"] = data[0].get("Id")
+                    record["company_id"] = data[0].get("AccountId")
 
-        mapping = {
-            "Name": record.get("title"),
-            "StageName": stage,
-            "CloseDate": record["close_date"].strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-            "Description": record.get("description"),
-            "Type": type,
-            "Amount": record.get("monetary_amount"),
-            "Probability": record.get("win_probability"),
-            "LeadSource": record.get("lead_source"),
-            "TotalOpportunityQuantity": record.get("expected_revenue"),
-            "AccountId": record.get("company_id"),
-            "OwnerId": record.get("owner_id"),
-            "ContactId": record.get("contact_id"),
-        }
+            mapping = {
+                "Name": record.get("title"),
+                "StageName": record_stage,
+                "CloseDate": record["close_date"].strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                "Description": record.get("description"),
+                "Type": record_type,
+                "Amount": record.get("monetary_amount"),
+                "Probability": record.get("win_probability"),
+                "LeadSource": record.get("lead_source"),
+                "TotalOpportunityQuantity": record.get("expected_revenue"),
+                "AccountId": record.get("company_id"),
+                "OwnerId": record.get("owner_id"),
+                "ContactId": record.get("contact_id"),
+            }
 
-        if not mapping.get("AccountId") and record.get("company_name"):
-            account_id = (
-                r["Id"]
-                for r in self.reference_data
-                if r["Name"] == record["company_name"]
-            )
-            mapping["AccountId"] = next(account_id, None)
+            if not mapping.get("AccountId") and record.get("company_name"):
+                account_id = (
+                    r["Id"]
+                    for r in self.reference_data
+                    if r["Name"] == record["company_name"]
+                )
+                mapping["AccountId"] = next(account_id, None)
 
-        if record.get("custom_fields"):
-            self.process_custom_fields(record["custom_fields"])
-            for cf in record.get("custom_fields"):
-                if not cf['name'].endswith('__c'):
-                    cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+            if record.get("custom_fields"):
+                self.process_custom_fields(record["custom_fields"])
+                for cf in record.get("custom_fields"):
+                    if not cf['name'].endswith('__c'):
+                        cf['name'] += '__c'
+                    mapping.update({cf['name']:cf['value']})
 
-        lookup_field = None
-        if record.get("external_id"):
-            external_id = record["external_id"]
-            mapping[external_id["name"]] = external_id["value"]
-            lookup_field = f'{external_id["name"]} = {external_id["value"]}'
+            lookup_field = None
+            if record.get("external_id"):
+                external_id = record["external_id"]
+                mapping[external_id["name"]] = external_id["value"]
+                lookup_field = f'{external_id["name"]} = {external_id["value"]}'
 
-        mapping = self.validate_output(mapping)
+            mapping = self.validate_output(mapping)
 
-        # If flag only_upsert_empty_fields is true, only upsert empty fields
-        if self.config.get("only_upsert_empty_fields") and lookup_field:
-            mapping = self.map_only_empty_fields(mapping, "Opportunity", lookup_field)
+            # If flag only_upsert_empty_fields is true, only upsert empty fields
+            if self.config.get("only_upsert_empty_fields") and lookup_field:
+                mapping = self.map_only_empty_fields(mapping, "Opportunity", lookup_field)
 
-        return mapping
-
+            return mapping
+        except Exception as exc:
+            return {"error": repr(exc)}
 
 class CompanySink(SalesforceV3Sink):
     endpoint = "sobjects/Account"
