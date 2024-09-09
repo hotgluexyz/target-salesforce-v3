@@ -923,6 +923,11 @@ class FallbackSink(SalesforceV3Sink):
             if self.config.get("only_upsert_empty_fields"):
                 record = {k:v for k,v in record.items() if not existing_record.get(k)}
             record["Id"] = existing_record["Id"]
+
+        # convert any datetimes to string to avoid json encoding errors
+        for key in record:
+            if isinstance(record.get(key), datetime):
+                record[key] = record[key].isoformat()
         return record
 
     def upsert_record(self, record, context):
