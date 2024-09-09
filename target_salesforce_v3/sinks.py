@@ -1007,6 +1007,17 @@ class FallbackSink(SalesforceV3Sink):
             self.logger.info(f"{object_type} created with id: {id}")
             return id, True, state_updates
         except Exception as e:
+            if "INVALID_FIELD_FOR_INSERT_UPDATE" in str(e):
+                fields = json.loads(str(e))[0]['fields']
+                self.logger.warning(f"Attempted to write read-only fields: {fields}. Removing them and retrying.")
+                for f in fields:
+                    record.pop(f, None)
+                # retry
+                response = self.request_api("POST", endpoint=endpoint, request_data=record)
+                id = response.json().get("id")
+                self.logger.info(f"{object_type} created with id: {id}")
+                return id, True, state_updates
+
             self.logger.exception(f"Error encountered while creating {object_type}")
             raise e
 
