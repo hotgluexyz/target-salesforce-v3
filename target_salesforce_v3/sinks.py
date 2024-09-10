@@ -928,6 +928,10 @@ class FallbackSink(SalesforceV3Sink):
         for key in record:
             if isinstance(record.get(key), datetime):
                 record[key] = record[key].isoformat()
+
+        # clean any read only fields
+        for field in self._target.read_only_fields.get(self.stream_name, []):
+            record.pop(field, None)
         return record
 
     def upsert_record(self, record, context):
@@ -1010,6 +1014,12 @@ class FallbackSink(SalesforceV3Sink):
             if "INVALID_FIELD_FOR_INSERT_UPDATE" in str(e):
                 fields = json.loads(str(e))[0]['fields']
                 self.logger.warning(f"Attempted to write read-only fields: {fields}. Removing them and retrying.")
+                # append read-only field to a list
+                if not self._target.read_only_fields.get(self.stream_name):
+                    self._target.read_only_fields[self.stream_name] = fields
+                else:
+                    self._target.read_only_fields[self.stream_name].extend(fields)
+                # remove read-only fields from record
                 for f in fields:
                     record.pop(f, None)
                 # retry
