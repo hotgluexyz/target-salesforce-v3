@@ -1012,13 +1012,16 @@ class FallbackSink(SalesforceV3Sink):
             return id, True, state_updates
         except Exception as e:
             if "INVALID_FIELD_FOR_INSERT_UPDATE" in str(e):
-                fields = json.loads(str(e))[0]['fields']
+                try:
+                    fields = json.loads(str(e))[0]['fields']
+                except:
+                    raise Exception(f"Attempted to write read-only fields. Unable to extract read-only fields to retry request: {str(e)}")
+                
                 self.logger.warning(f"Attempted to write read-only fields: {fields}. Removing them and retrying.")
                 # append read-only field to a list
                 if not self._target.read_only_fields.get(self.stream_name):
-                    self._target.read_only_fields[self.stream_name] = fields
-                else:
-                    self._target.read_only_fields[self.stream_name].extend(fields)
+                    self._target.read_only_fields[self.stream_name] = []
+                self._target.read_only_fields[self.stream_name].extend(fields)
                 # remove read-only fields from record
                 for f in fields:
                     record.pop(f, None)
