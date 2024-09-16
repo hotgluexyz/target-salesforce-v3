@@ -899,7 +899,7 @@ class FallbackSink(SalesforceV3Sink):
             req = self.request_api("GET", "queryAll", params={"q": query})
             req = req.json().get("records")
         # lookup for record with email fields
-        else:
+        elif self.config.get("lookup_by_mail"):
             # Try to find object instance using email
             email_fields = ["Email", "npe01__AlternateEmail__c", "npe01__HomeEmail__c", "npe01__Preferred_Email__c", "npe01__WorkEmail__c"]
             email_values = [record.get(email_field) for email_field in email_fields if record.get(email_field)]
