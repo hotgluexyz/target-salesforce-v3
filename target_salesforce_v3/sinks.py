@@ -882,6 +882,13 @@ class FallbackSink(SalesforceV3Sink):
         except MissingObjectInSalesforceError:
             self.logger.info("Skipping record, because it was not found on Salesforce.")
             return {}
+        
+        # keep only available fields and that are creatable or updatable
+        record = {k:v for k,v in record.items() if fields.get(k) and (fields[k]["createable"] or fields[k]["updateable"])}
+        # clean empty date fields to avoid salesforce parsing error
+        record = {k:v for k,v in record.items() if fields[k].get("type") not in ["date", "datetime"] or (fields[k].get("type") in ["date", "datetime"] and v)}
+        
+        # add object_type
         record["object_type"] = object_type
 
         # If lookup_fields dict exist in config use it to check if the record exists in Salesforce
