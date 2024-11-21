@@ -254,7 +254,7 @@ class ContactsSink(SalesforceV3Sink):
                     self.assign_to_topic(id,self.topics)
                 return id, True, state_updates
             except Exception as e:
-                self.logger.exception("Error while attempting to create Contact")
+                self.log_error_message(response, e)
                 raise e
 
     def validate_response(self, response):
@@ -320,8 +320,7 @@ class ContactsSink(SalesforceV3Sink):
                 # Means it's already in the topic
                 if "DUPLICATE_VALUE" in str(e):
                     return
-
-                self.logger.exception("Error encountered while creating TopicAssignment")
+                self.log_error_message(response, e)
                 raise e
 
     def assign_to_campaign(self,contact_id,campaigns:list) -> None:
@@ -376,8 +375,7 @@ class ContactsSink(SalesforceV3Sink):
                 id = data.get("id")
                 self.logger.info(f"CampaignMember created with id: {id}")
             except Exception as e:
-                self.logger.exception("Error encountered while creating CampaignMember")
-                error = f"error: {e}, response: {response.json()}"
+                self.log_error_message(response, e)
                 raise e
 
 
@@ -724,7 +722,7 @@ class CampaignSink(SalesforceV3Sink):
             self.logger.info(f"{self.name} created with id: {id}")
             return id, True, state_updates
         except Exception as e:
-            self.logger.exception("Error encountered while creating campaign")
+            self.log_error_message(response, e)
             raise e
 
 
@@ -1013,7 +1011,7 @@ class FallbackSink(SalesforceV3Sink):
                 self.logger.info(f"{object_type} updated with id: {id}")
                 return id, True, state_updates
             except Exception as e:
-                self.logger.exception(f"Error encountered while updating {object_type}")
+                self.log_error_message(response, e)
 
         if len(possible_update_fields) > 0:
             for id_field in possible_update_fields:
@@ -1037,28 +1035,31 @@ class FallbackSink(SalesforceV3Sink):
             self.link_attachment_to_object(id, linked_object_id)
             return id, True, state_updates
         except Exception as e:
-            if "INVALID_FIELD_FOR_INSERT_UPDATE" in str(e):
-                try:
-                    fields = json.loads(str(e))[0]['fields']
-                except:
-                    raise Exception(f"Attempted to write read-only fields. Unable to extract read-only fields to retry request: {str(e)}")
-                
-                self.logger.warning(f"Attempted to write read-only fields: {fields}. Removing them and retrying.")
-                # append read-only field to a list
-                if not self._target.read_only_fields.get(self.stream_name):
-                    self._target.read_only_fields[self.stream_name] = []
-                self._target.read_only_fields[self.stream_name].extend(fields)
-                # remove read-only fields from record
-                for f in fields:
-                    record.pop(f, None)
-                # retry
+            if "INVALID_FIELD_FOR_INSERT_UPDATE" not in str(e):
+                self.log_error_message(response, e)
+                raise e
+            try:
+                fields = json.loads(str(e))[0]['fields']
+            except:
+                raise Exception(f"Attempted to write read-only fields. Unable to extract read-only fields to retry request: {str(e)}")
+            
+            self.logger.warning(f"Attempted to write read-only fields: {fields}. Removing them and retrying.")
+            # append read-only field to a list
+            if not self._target.read_only_fields.get(self.stream_name):
+                self._target.read_only_fields[self.stream_name] = []
+            self._target.read_only_fields[self.stream_name].extend(fields)
+            # remove read-only fields from record
+            for f in fields:
+                record.pop(f, None)
+            # retry
+            try:
                 response = self.request_api("POST", endpoint=endpoint, request_data=record)
                 id = response.json().get("id")
                 self.logger.info(f"{object_type} created with id: {id}")
                 return id, True, state_updates
-
-            self.logger.exception(f"Error encountered while creating {object_type}")
-            raise e
+            except Exception as e:
+                self.log_error_message(response, e)
+                raise e
 
 
     def link_attachment_to_object(self, file_id, linked_object_id):
