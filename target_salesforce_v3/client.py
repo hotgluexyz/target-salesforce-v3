@@ -10,6 +10,7 @@ import requests
 from backports.cached_property import cached_property
 from datetime import datetime
 
+from requests import PreparedRequest
 from singer_sdk.exceptions import FatalAPIError, RetriableAPIError
 from singer_sdk.sinks import RecordSink
 
@@ -440,3 +441,13 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         if data:
             mapping = {k:v for k,v in mapping.items() if not data[0].get(k) or k == "Id"}
         return mapping
+    
+    
+    def log_error_message(self, response: PreparedRequest, e: Exception):
+        try:
+            response_content = response.json()
+        except ValueError:
+            response_content = response.text if hasattr(response, 'text') else str(response)
+
+        error_message = f"Error: {e}, Response: {response_content}"
+        self.logger.exception(error_message)
