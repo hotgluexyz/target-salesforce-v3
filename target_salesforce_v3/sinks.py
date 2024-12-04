@@ -1062,29 +1062,29 @@ class FallbackSink(SalesforceV3Sink):
 
 
     def link_attachment_to_object(self, file_id, linked_object_id):
-        if self.name == "ContentVersion" and not linked_object_id:
-            self.logger.info(f"Object id not found to link file with id {file_id}")
-            return
-        
-        try:
-            # get contentdocumentid
-            content_endpoint = "query"
-            params = {"q": f"SELECT ContentDocumentId FROM ContentVersion WHERE Id = '{file_id}'"}
-            content_document_id = self.request_api("GET", endpoint=content_endpoint, params=params)
-            content_document_id = content_document_id.json()
-            if content_document_id.get("records"):
-                content_document_id = content_document_id["records"][0]["ContentDocumentId"]
-            else:
-                raise Exception(f"Failed while trying to link file {file_id} and object {linked_object_id} because ContentDocumentId was not found")
+        if self.name == "ContentVersion":
+            if not linked_object_id:
+                self.logger.info(f"Object id not found to link file with id {file_id}")
+                return
+            try:
+                # get contentdocumentid
+                content_endpoint = "query"
+                params = {"q": f"SELECT ContentDocumentId FROM ContentVersion WHERE Id = '{file_id}'"}
+                content_document_id = self.request_api("GET", endpoint=content_endpoint, params=params)
+                content_document_id = content_document_id.json()
+                if content_document_id.get("records"):
+                    content_document_id = content_document_id["records"][0]["ContentDocumentId"]
+                else:
+                    raise Exception(f"Failed while trying to link file {file_id} and object {linked_object_id} because ContentDocumentId was not found")
 
-            endpoint = "sobjects/ContentDocumentLink"
-            record = {
-                "ContentDocumentId": content_document_id,
-                "LinkedEntityId": linked_object_id,
-                "ShareType": "V"
-            }
-            response = self.request_api("POST", endpoint=endpoint, request_data=record)
-            self.logger.info(f"File with id {file_id} succesfully linked to object with id {linked_object_id}. Link id {response.json()['id']}")
-        except Exception as e:
-            self.logger.info(f"Failed while trying to link file {file_id} and object {linked_object_id}")
-            raise e
+                endpoint = "sobjects/ContentDocumentLink"
+                record = {
+                    "ContentDocumentId": content_document_id,
+                    "LinkedEntityId": linked_object_id,
+                    "ShareType": "V"
+                }
+                response = self.request_api("POST", endpoint=endpoint, request_data=record)
+                self.logger.info(f"File with id {file_id} succesfully linked to object with id {linked_object_id}. Link id {response.json()['id']}")
+            except Exception as e:
+                self.logger.info(f"Failed while trying to link file {file_id} and object {linked_object_id}")
+                raise e
