@@ -254,7 +254,7 @@ class ContactsSink(SalesforceV3Sink):
                     self.assign_to_topic(id,self.topics)
                 return id, True, state_updates
             except Exception as e:
-                self.log_error_message(response, e)
+                self.log_error_message(self.name, response, e)
                 raise e
 
     def validate_response(self, response):
@@ -320,7 +320,7 @@ class ContactsSink(SalesforceV3Sink):
                 # Means it's already in the topic
                 if "DUPLICATE_VALUE" in str(e):
                     return
-                self.log_error_message(response, e)
+                self.log_error_message(self.name, response, e)
                 raise e
 
     def assign_to_campaign(self,contact_id,campaigns:list) -> None:
@@ -375,7 +375,7 @@ class ContactsSink(SalesforceV3Sink):
                 id = data.get("id")
                 self.logger.info(f"CampaignMember created with id: {id}")
             except Exception as e:
-                self.log_error_message(response, e)
+                self.log_error_message(self.name, response, e)
                 raise e
 
 
@@ -722,7 +722,7 @@ class CampaignSink(SalesforceV3Sink):
             self.logger.info(f"{self.name} created with id: {id}")
             return id, True, state_updates
         except Exception as e:
-            self.log_error_message(response, e)
+            self.log_error_message(self.name, response, e)
             raise e
 
 
@@ -1011,7 +1011,7 @@ class FallbackSink(SalesforceV3Sink):
                 self.logger.info(f"{object_type} updated with id: {id}")
                 return id, True, state_updates
             except Exception as e:
-                self.log_error_message(response, e)
+                self.log_error_message(self.name, response, e)
 
         if len(possible_update_fields) > 0:
             for id_field in possible_update_fields:
@@ -1036,7 +1036,7 @@ class FallbackSink(SalesforceV3Sink):
             return id, True, state_updates
         except Exception as e:
             if "INVALID_FIELD_FOR_INSERT_UPDATE" not in str(e):
-                self.log_error_message(response, e)
+                self.log_error_message(self.name, response, e)
                 raise e
             try:
                 fields = json.loads(str(e))[0]['fields']
@@ -1058,7 +1058,7 @@ class FallbackSink(SalesforceV3Sink):
                 self.logger.info(f"{object_type} created with id: {id}")
                 return id, True, state_updates
             except Exception as e:
-                self.log_error_message(response, e)
+                self.log_error_message(self.name, response, e)
                 raise e
 
 
