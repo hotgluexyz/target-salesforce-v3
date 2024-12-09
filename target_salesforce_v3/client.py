@@ -10,6 +10,7 @@ import requests
 from backports.cached_property import cached_property
 from datetime import datetime
 
+from requests import PreparedRequest
 from singer_sdk.exceptions import FatalAPIError, RetriableAPIError
 from singer_sdk.sinks import RecordSink
 
@@ -114,7 +115,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
     )
     def _request(
         self, http_method, endpoint, params=None, request_data=None, headers=None
-    ) -> requests.PreparedRequest:
+    ) -> requests.Response:
         """Prepare a request object."""
         url = self.url(endpoint)
         headers = self.http_headers
@@ -140,7 +141,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         self.validate_response(response)
         return response
 
-    def request_api(self, http_method, endpoint=None, params=None, request_data=None, headers=None):
+    def request_api(self, http_method, endpoint=None, params=None, request_data=None, headers=None) -> requests.Response:
         """Request records from REST endpoint(s), returning response records."""
         resp = self._request(http_method, endpoint, params, request_data, headers)
         self.check_salesforce_limits(resp)
@@ -440,3 +441,13 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         if data:
             mapping = {k:v for k,v in mapping.items() if not data[0].get(k) or k == "Id"}
         return mapping
+    
+    
+    def log_error_message(self, sink_name: str, response: requests.Response, e: Exception):
+        try:
+            response_content = response.json()
+        except ValueError:
+            response_content = response.text if hasattr(response, 'text') else str(response)
+
+        error_message = f"[{response.status_code}] Sink: {sink_name} | Error: {e}, URL: {response.url}, Body: {response.request.body}, Response: {response_content}"
+        self.logger.exception(error_message)
