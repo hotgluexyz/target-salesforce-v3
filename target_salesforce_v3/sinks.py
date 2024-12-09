@@ -1078,6 +1078,18 @@ class FallbackSink(SalesforceV3Sink):
             else:
                 raise Exception(f"Failed while trying to link file {file_id} and object {linked_object_id} because ContentDocumentId was not found")
 
+            if isinstance(linked_object_id, dict):
+                # they're using an external id, we need to look it up
+                link = list(linked_object_id.keys())[0]
+                sobject, external_id = link.split("/")
+                params = {"q": f"SELECT Id FROM {sobject} WHERE {external_id} = '{linked_object_id[link]}'"}
+                link_obj = self.request_api("GET", endpoint=content_endpoint, params=params)
+                link_obj = link_obj.json()
+                if link_obj.get("records"):
+                    linked_object_id = link_obj['records'][0]['Id']
+                else:
+                    raise Exception(f"Could not find matching {sobject} with {external_id} = '{linked_object_id[link]}'")
+
             endpoint = "sobjects/ContentDocumentLink"
             record = {
                 "ContentDocumentId": content_document_id,
