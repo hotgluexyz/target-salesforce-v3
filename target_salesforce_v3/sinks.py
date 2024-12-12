@@ -242,6 +242,7 @@ class ContactsSink(SalesforceV3Sink):
                 except Exception as e:
                     self.logger.exception(f"Could not PATCH to {url}: {e}")
         if record:
+            response = None
             try:
                 response = self.request_api("POST", request_data=record)
                 id = response.json().get("id")
@@ -254,7 +255,8 @@ class ContactsSink(SalesforceV3Sink):
                     self.assign_to_topic(id,self.topics)
                 return id, True, state_updates
             except Exception as e:
-                self.log_error_message(self.name, response, e)
+                if response:
+                    self.log_error_message(self.name, response, e)
                 raise e
 
     def validate_response(self, response):
@@ -308,6 +310,7 @@ class ContactsSink(SalesforceV3Sink):
             # Add the contact to the topic
             self.logger.info(f"INFO: Adding Contact/Lead Id:[{contact_id}] to Topic Id:[{topic_id}].")
 
+            response = None
             try:
                 response = self.request_api("POST",endpoint="sobjects/TopicAssignment",request_data={
                     "EntityId": contact_id,
@@ -320,7 +323,8 @@ class ContactsSink(SalesforceV3Sink):
                 # Means it's already in the topic
                 if "DUPLICATE_VALUE" in str(e):
                     return
-                self.log_error_message(self.name, response, e)
+                if response:
+                    self.log_error_message(self.name, response, e)
                 raise e
 
     def assign_to_campaign(self,contact_id,campaigns:list) -> None:
@@ -365,6 +369,7 @@ class ContactsSink(SalesforceV3Sink):
             # Create the CampaignMember
             self.logger.info(f"INFO: Adding Contact/Lead Id:[{contact_id}] as a CampaignMember of Campaign Id:[{mapping.get('CampaignId')}].")
 
+            response = None
             try:
                 response = self.request_api("POST",endpoint="sobjects/CampaignMember",request_data=mapping)
                 data = response.json()
@@ -375,7 +380,8 @@ class ContactsSink(SalesforceV3Sink):
                 id = data.get("id")
                 self.logger.info(f"CampaignMember created with id: {id}")
             except Exception as e:
-                self.log_error_message(self.name, response, e)
+                if response:
+                    self.log_error_message(self.name, response, e)
                 raise e
 
 
@@ -715,14 +721,17 @@ class CampaignSink(SalesforceV3Sink):
         if not record.get("Name") and not record.get("WhatId"):
             raise FatalAPIError("ERROR: Campaigns in Salesforce are required to have a 'Name' field")
 
-
+        response = None
         try:
             response = self.request_api("POST", request_data=record)
             id = response.json().get("id")
             self.logger.info(f"{self.name} created with id: {id}")
             return id, True, state_updates
         except Exception as e:
-            self.log_error_message(self.name, response, e)
+            if response:
+                self.log_error_message(self.name, response, e)
+            else:
+                self.logger.exception(f"Could not POST to {self.endpoint}: {e}")
             raise e
 
 
@@ -1000,6 +1009,7 @@ class FallbackSink(SalesforceV3Sink):
         if record.get("Id") or record.get("id"):
             object_id = record.pop("Id") or record.pop("id")
             url = "/".join([endpoint, object_id])
+            response = None
             try:
                 response = self.request_api("PATCH", endpoint=url, request_data=record)
                 if response.status_code == 204:
@@ -1011,7 +1021,10 @@ class FallbackSink(SalesforceV3Sink):
                 self.logger.info(f"{object_type} updated with id: {id}")
                 return id, True, state_updates
             except Exception as e:
-                self.log_error_message(self.name, response, e)
+                if response:
+                    self.log_error_message(self.name, response, e)
+                else:
+                    self.logger.exception(f"Could not PATCH to {url}: {e}")
 
         if len(possible_update_fields) > 0:
             for id_field in possible_update_fields:
@@ -1025,6 +1038,7 @@ class FallbackSink(SalesforceV3Sink):
                 except Exception as e:
                     self.logger.exception(f"Could not PATCH to {url}: {e}")
 
+        response = None
         try:
             if len(possible_update_fields) > 0:
                 self.logger.info("Failed to find updatable entity, trying to create it.")
@@ -1036,7 +1050,10 @@ class FallbackSink(SalesforceV3Sink):
             return id, True, state_updates
         except Exception as e:
             if "INVALID_FIELD_FOR_INSERT_UPDATE" not in str(e):
-                self.log_error_message(self.name, response, e)
+                if response:
+                    self.log_error_message(self.name, response, e)
+                else:
+                    self.logger.exception(f"Could not POST to {endpoint}: {e}")
                 raise e
             try:
                 fields = json.loads(str(e))[0]['fields']
@@ -1052,13 +1069,17 @@ class FallbackSink(SalesforceV3Sink):
             for f in fields:
                 record.pop(f, None)
             # retry
+            response = None
             try:
                 response = self.request_api("POST", endpoint=endpoint, request_data=record)
                 id = response.json().get("id")
                 self.logger.info(f"{object_type} created with id: {id}")
                 return id, True, state_updates
             except Exception as e:
-                self.log_error_message(self.name, response, e)
+                if response:
+                    self.log_error_message(self.name, response, e)
+                else:
+                    self.logger.exception(f"Could not POST to {endpoint}: {e}")
                 raise e
 
 
