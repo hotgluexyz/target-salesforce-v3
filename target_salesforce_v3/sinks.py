@@ -241,6 +241,7 @@ class ContactsSink(SalesforceV3Sink):
                     return id, True, state_updates
                 except Exception as e:
                     self.logger.exception(f"Could not PATCH to {url}: {e}")
+                    raise e
         if record:
             try:
                 response = self.request_api("POST", request_data=record)
