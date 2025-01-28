@@ -150,7 +150,7 @@ class ContactsSink(SalesforceV3Sink):
             mapping[f"{_prefix}City"] = address.get("city")
             mapping[f"{_prefix}State"] = address.get("state")
             mapping[f"{_prefix}PostalCode"] = address.get("postal_code")
-            mapping[f"{_prefix}Country"] = address.get("country")
+            mapping[f"{_prefix}Country"] = self.map_country(address.get("country"))
 
         if record.get("addresses") and len(record["addresses"]) >= 2 and self.contact_type == 'Contact':
             # Leads only have one address
@@ -162,7 +162,7 @@ class ContactsSink(SalesforceV3Sink):
             mapping["OtherCity"] = address.get("city")
             mapping["OtherState"] = address.get("state")
             mapping["OtherPostalCode"] = address.get("postal_code")
-            mapping["OtherCountry"] = address.get("country")
+            mapping["OtherCountry"] = self.map_country(address.get("country"))
 
         phone_types = {
             "Phone": ["primary"],
@@ -525,7 +525,7 @@ class CompanySink(SalesforceV3Sink):
             mapping["BillingCity"] = address.get("city")
             mapping["BillingState"] = address.get("state")
             mapping["BillingPostalCode"] = address.get("postal_code")
-            mapping["BillingCountry"] = address.get("country")
+            mapping["BillingCountry"] = self.map_country(address.get("country"))
 
         if record.get("addresses") and len(record["addresses"]) >= 2:
             address = record["addresses"][1]
@@ -534,7 +534,7 @@ class CompanySink(SalesforceV3Sink):
             mapping["ShippingCity"] = address.get("city")
             mapping["ShippingState"] = address.get("state")
             mapping["ShippingPostalCode"] = address.get("postal_code")
-            mapping["ShippingCountry"] = address.get("country")
+            mapping["ShippingCountry"] = self.map_country(address.get("country"))
 
         phone_types = {"Phone": ["primary"], "Fax": ["fax"]}
 
