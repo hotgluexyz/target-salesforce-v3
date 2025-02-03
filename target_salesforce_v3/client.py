@@ -305,6 +305,8 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         if not fields_dict["createable"]:
             raise NoCreatableFieldsException(f"No creatable fields for stream {self.name} stream, check your permissions")
         for k, v in mapping.items():
+            if k == "campaign_member_fields" and self.name.lower() in ["contacts", "customers"]:
+                payload[k] = v
             if k.endswith("__c") or k in fields_dict["createable"] + ["Id"]:
                 payload[k] = v
 
@@ -322,7 +324,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             return response
         return [{k: v for k, v in r.items() if k in fields} for r in response]
 
-    def process_custom_fields(self, record) -> None:
+    def process_custom_fields(self, record, exclude_fields=[]) -> None:
         """
             Process the custom fields for Salesforce,
             creating unexsisting custom fields based on the present custom fields available in the record.
@@ -342,13 +344,16 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
 
         for cf in record:
             cf_name = cf['name']
+            if cf_name in exclude_fields:
+                self.logger.info(f"Not creating {cf_name} as it's in exclude_fields list")
+                continue
             if not cf_name.endswith('__c'):
                 cf_name+='__c'
             if cf_name not in salesforce_custom_fields:
                 # If there's a custom field in the record that is not in Salesforce
                 # create it
                 self.add_custom_field(cf['name'], label = cf.get('label'))
-
+                self.new_custom_fields.append(cf_name)
         return None
 
     def add_custom_field(self,cf,label=None):

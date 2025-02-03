@@ -25,6 +25,11 @@ class ContactsSink(SalesforceV3Sink):
     topics = None
     contact_type = "Contact"
     available_names = ["contacts", "customers"]
+    new_custom_fields = []
+    
+    @cached_property
+    def _fields(self):
+        return self.get_fields_for_object(self.contact_type)
 
     @cached_property
     def reference_data(self):
@@ -32,6 +37,10 @@ class ContactsSink(SalesforceV3Sink):
         response = self.request_api("GET", endpoint="query", params=params)
         response = response.json()["records"]
         return [{k: v for k, v in r.items() if k in ["Id", "Name"]} for r in response]
+    
+    @cached_property
+    def campaing_member_fields(self):
+        return self.get_fields_for_object("CampaignMember")
 
     def preprocess_record(self, record: dict, context: dict):
 
@@ -181,11 +190,23 @@ class ContactsSink(SalesforceV3Sink):
             mapping[phone_type] = phone.get("number")
 
         if record.get("custom_fields"):
-            self.process_custom_fields(record["custom_fields"])
-            for cf in record.get("custom_fields"):
-                if not cf['name'].endswith('__c'):
-                    cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+            # if create_custom_fields flag is on create custom fields
+            campaign_members_fields = self.campaing_member_fields
+            self.process_custom_fields(record["custom_fields"], list(campaign_members_fields.keys()))
+            fields = self._fields
+
+            # add here the fields that will be sent in campaignmember payload
+            mapping["campaign_member_fields"] = {}
+            # process custom fields
+            custom_fields = {cust["name"]: cust["value"] for cust in record["custom_fields"]}
+            for key, value in custom_fields.items():
+                # check first if field belongs to campaignmembers
+                if key in campaign_members_fields:
+                    mapping["campaign_member_fields"][key] = value
+                if (fields.get(key) and (fields[key]["createable"] or fields[key]["updateable"] or key.lower() in ["id", "externalid"])) or key.endswith("__r") or fields.get(key+"Id"):
+                    mapping[key] = value
+                if f"{key}__c" in self.new_custom_fields:
+                    mapping.update({f"{key}__c": value})
 
         if not mapping.get("AccountId") and record.get("company_name"):
             account_id = (
@@ -221,6 +242,7 @@ class ContactsSink(SalesforceV3Sink):
                 try:
                     update_record = record.copy()
                     id = update_record.pop(field)
+                    campaign_members_fields = update_record.pop("campaign_member_fields", {})
                     if update_record:
                         url = "/".join([self.endpoint, field, record[field]])
 
@@ -233,7 +255,7 @@ class ContactsSink(SalesforceV3Sink):
 
                     # Check for campaigns to be added
                     if self.campaigns:
-                        self.assign_to_campaign(id,self.campaigns)
+                        self.assign_to_campaign(id, self.campaigns, campaign_members_fields)
 
                     if self.topics:
                         self.assign_to_topic(id,self.topics)
@@ -244,12 +266,13 @@ class ContactsSink(SalesforceV3Sink):
                     raise e
         if record:
             try:
+                campaign_members_fields = record.pop("campaign_member_fields", {})
                 response = self.request_api("POST", request_data=record)
                 id = response.json().get("id")
                 self.logger.info(f"{self.contact_type} created with id: {id}")
                 # Check for campaigns to be added
                 if self.campaigns:
-                    self.assign_to_campaign(id,self.campaigns)
+                    self.assign_to_campaign(id,self.campaigns, campaign_members_fields)
 
                 if self.topics:
                     self.assign_to_topic(id,self.topics)
@@ -325,7 +348,7 @@ class ContactsSink(SalesforceV3Sink):
                 self.logger.exception("Error encountered while creating TopicAssignment")
                 raise e
 
-    def assign_to_campaign(self,contact_id,campaigns:list) -> None:
+    def assign_to_campaign(self,contact_id,campaigns:list, payload={}) -> None:
         """
         This function recieves a contact_id and a list of campaigns and assigns the contact_id to each campaign
 
@@ -363,6 +386,10 @@ class ContactsSink(SalesforceV3Sink):
                 mapping.update({"ContactId": contact_id})
             else:
                 mapping.update({"LeadId": contact_id})
+            
+            # add custom fields to payload
+            if payload:
+                mapping.update(payload)
 
             # Create the CampaignMember
             self.logger.info(f"INFO: Adding Contact/Lead Id:[{contact_id}] as a CampaignMember of Campaign Id:[{mapping.get('CampaignId')}].")
@@ -378,7 +405,7 @@ class ContactsSink(SalesforceV3Sink):
                 self.logger.info(f"CampaignMember created with id: {id}")
             except Exception as e:
                 self.logger.exception("Error encountered while creating CampaignMember")
-                error = f"error: {e}, response: {response.json()}"
+                self.logger.exception(f"error: {e}, response: {response.json()}, request body: {response.request.body}")
                 raise e
 
 
