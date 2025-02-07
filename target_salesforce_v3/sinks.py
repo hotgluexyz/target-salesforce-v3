@@ -18,6 +18,7 @@ from target_salesforce_v3.exceptions import InvalidDealRecord, MissingObjectInSa
 
 
 class ContactsSink(SalesforceV3Sink):
+    _clients_ids = None
     endpoint = "sobjects/Contact"
     unified_schema = Contact
     name = Contact.Stream.name
@@ -204,10 +205,52 @@ class ContactsSink(SalesforceV3Sink):
 
         return mapping
 
+    @property
+    def clients_ids(self):
+        if self._clients_ids is None:
+            self._clients_ids = {}
+            
+            # Initial query
+            query = "SELECT Id, Name FROM Contact"
+            done = False
+            next_records_url = None
+            
+            while not done:
+                if next_records_url:
+                    response = self.request_api("GET", endpoint=next_records_url)
+                else:
+                    response = self.request_api("GET", endpoint="query", params={"q": query})
+                
+                response_json = response.json()
+                records = response_json.get("records", [])
+                
+                # Store contact IDs and names
+                for record in records:
+                    self._clients_ids[record.get("Id")] = record.get("Name")
+                
+                # Check if more records exist
+                done = not response_json.get("nextRecordsUrl")
+                next_records_url = response_json.get("nextRecordsUrl")
+                
+                if next_records_url:
+                    # Remove instance URL from nextRecordsUrl as it's handled by request_api
+                    next_records_url = next_records_url.split("/services/data/")[1]
+                
+        return self._clients_ids
+
+    def client_dont_exists(self, record):
+        client_name = record.get("FirstName", "") + " " + record.get("LastName", "")
+        return not any(name == client_name for name in self.clients_ids.values())
+
+    def get_contact_id(self, record):
+        client_name = record.get("FirstName", "") + " " + record.get("LastName", "")
+        return next(client_id for client_id, name in self.clients_ids.items() if name == client_name)
+
     def upsert_record(self, record, context):
         """Process the record."""
         state_updates = dict()
         # Getting custom fields from record
+        # self.process_custom_fields(record)
         # self.process_custom_fields(record)
 
         if record.get("Id"):
@@ -244,9 +287,32 @@ class ContactsSink(SalesforceV3Sink):
                     raise e
         if record:
             try:
-                response = self.request_api("POST", request_data=record)
-                id = response.json().get("id")
-                self.logger.info(f"{self.contact_type} created with id: {id}")
+                # Get field descriptions for validation
+                fields_desc = self.sf_fields_description()
+                allowed_fields = fields_desc.get("createable", []) + fields_desc.get("custom", [])
+                # Validate each field in the record
+                validated_record = {}
+                for field_name, value in record.items():
+                    if field_name in allowed_fields:
+                        validated_record[field_name] = value
+
+                if not validated_record:
+                    raise ValueError(f"No valid fields to upsert on record: {record}")
+                else:
+                    self.logger.info(f"Validated fields: {validated_record.keys()}")
+                    self.logger.info(f"Ignored fields: {set(record.keys()) - set(validated_record.keys())}")
+                
+                campaign_members_fields = validated_record.pop("campaign_member_fields", {})
+                if self.client_dont_exists(validated_record):
+                    response = self.request_api("POST", request_data=validated_record)
+                    contact_id = response.json().get("id")
+                    
+                    self._clients_ids[contact_id] = validated_record.get("FirstName", "") + " " + validated_record.get("LastName", "")
+                    id = contact_id
+                    self.logger.info(f"{self.contact_type} created with id: {id}")
+                else:
+                    id = self.get_contact_id(validated_record)
+                    self.logger.info(f"{self.contact_type} found with id: {id}")
                 # Check for campaigns to be added
                 if self.campaigns:
                     self.assign_to_campaign(id,self.campaigns)
@@ -377,9 +443,8 @@ class ContactsSink(SalesforceV3Sink):
                 id = data.get("id")
                 self.logger.info(f"CampaignMember created with id: {id}")
             except Exception as e:
-                self.logger.exception("Error encountered while creating CampaignMember")
-                error = f"error: {e}, response: {response.json()}"
-                raise e
+                self.logger.error(f"Error encountered while creating CampaignMember: {str(e)}")
+                raise
 
 
 class DealsSink(SalesforceV3Sink):
