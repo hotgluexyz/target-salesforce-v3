@@ -39,7 +39,7 @@ class ContactsSink(SalesforceV3Sink):
         return [{k: v for k, v in r.items() if k in ["Id", "Name"]} for r in response]
     
     @cached_property
-    def campaing_member_fields(self):
+    def campaign_member_fields(self):
         return self.get_fields_for_object("CampaignMember")
 
     def preprocess_record(self, record: dict, context: dict):
@@ -190,9 +190,16 @@ class ContactsSink(SalesforceV3Sink):
             mapping[phone_type] = phone.get("number")
 
         if record.get("custom_fields"):
-            # if create_custom_fields flag is on create custom fields
-            campaign_members_fields = self.campaing_member_fields
-            self.process_custom_fields(record["custom_fields"], list(campaign_members_fields.keys()))
+            '''
+            if create_custom_fields flag is on, we create custom fields
+             excluding non-custom fields that already exist on Contact or CampaignMember
+
+             This is to protect against the case where non-custom fields are passed in custom_fields
+            '''
+            campaign_members_fields = self.campaign_member_fields
+            existing_fields = list(self._fields.keys())
+            existing_fields.extend(list(campaign_members_fields.keys()))
+            self.process_custom_fields(record["custom_fields"], exclude_fields=existing_fields)
             fields = self._fields
 
             # add here the fields that will be sent in campaignmember payload
@@ -201,8 +208,12 @@ class ContactsSink(SalesforceV3Sink):
             custom_fields = {cust["name"]: cust["value"] for cust in record["custom_fields"]}
             for key, value in custom_fields.items():
                 # check first if field belongs to campaignmembers
-                if key in campaign_members_fields:
-                    mapping["campaign_member_fields"][key] = value
+                if campaign_members_fields.get(key):
+                    # Check to make sure field is not read-only
+                    if campaign_members_fields[key]["createable"] or campaign_members_fields[key]["updateable"]:
+                        mapping["campaign_member_fields"][key] = value
+                    else:
+                        self.logger.warning(f"Field {key} is read-only and cannot be updated.")
                 if (fields.get(key) and (fields[key]["createable"] or fields[key]["updateable"] or key.lower() in ["id", "externalid"])) or key.endswith("__r") or fields.get(key+"Id"):
                     mapping[key] = value
                 if f"{key}__c" in self.new_custom_fields:
