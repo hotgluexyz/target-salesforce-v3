@@ -192,7 +192,8 @@ class ContactsSink(SalesforceV3Sink):
         if record.get("custom_fields"):
             # if create_custom_fields flag is on create custom fields
             campaign_members_fields = self.campaing_member_fields
-            self.process_custom_fields(record["custom_fields"], list(campaign_members_fields.keys()))
+            existing_fields = list(self._fields.keys()).extend(list(campaign_members_fields.keys()))
+            self.process_custom_fields(record["custom_fields"], exclude_fields=existing_fields)
             fields = self._fields
 
             # add here the fields that will be sent in campaignmember payload
