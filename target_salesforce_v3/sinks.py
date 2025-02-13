@@ -194,7 +194,7 @@ class ContactsSink(SalesforceV3Sink):
             if create_custom_fields flag is on, we create custom fields
              excluding non-custom fields that already exist on Contact or CampaignMember
 
-             This is protect against the case where non-custom fields are passed in custom_fields
+             This is to protect against the case where non-custom fields are passed in custom_fields
             '''
             campaign_members_fields = self.campaign_member_fields
             existing_fields = list(self._fields.keys())
