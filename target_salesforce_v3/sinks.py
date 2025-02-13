@@ -534,13 +534,7 @@ class DealsSink(SalesforceV3Sink):
                 mapping[external_id["name"]] = external_id["value"]
                 lookup_field = f'{external_id["name"]} = {external_id["value"]}'
 
-                lookup_field = None
-                if record.get("external_id"):
-                    external_id = record["external_id"]
-                    mapping[external_id["name"]] = external_id["value"]
-                    lookup_field = f'{external_id["name"]} = {external_id["value"]}'
-
-                mapping = self.validate_output(mapping)
+            mapping = self.validate_output(mapping)
 
             # If flag only_upsert_empty_fields is true, only upsert empty fields
             if self.config.get("only_upsert_empty_fields") and lookup_field:
