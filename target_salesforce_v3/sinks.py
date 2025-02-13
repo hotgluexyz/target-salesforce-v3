@@ -212,6 +212,8 @@ class ContactsSink(SalesforceV3Sink):
                     # Check to make sure field is not read-only
                     if campaign_members_fields[key]["createable"] or campaign_members_fields[key]["updateable"]:
                         mapping["campaign_member_fields"][key] = value
+                    else:
+                        self.logger.warning(f"Field {key} is read-only and cannot be updated.")
                 if (fields.get(key) and (fields[key]["createable"] or fields[key]["updateable"] or key.lower() in ["id", "externalid"])) or key.endswith("__r") or fields.get(key+"Id"):
                     mapping[key] = value
                 if f"{key}__c" in self.new_custom_fields:
