@@ -192,7 +192,8 @@ class ContactsSink(SalesforceV3Sink):
         if record.get("custom_fields"):
             # if create_custom_fields flag is on create custom fields
             campaign_members_fields = self.campaing_member_fields
-            existing_fields = list(self._fields.keys()).extend(list(campaign_members_fields.keys()))
+            existing_fields = list(self._fields.keys())
+            existing_fields.extend(list(campaign_members_fields.keys()))
             self.process_custom_fields(record["custom_fields"], exclude_fields=existing_fields)
             fields = self._fields
 
@@ -202,7 +203,7 @@ class ContactsSink(SalesforceV3Sink):
             custom_fields = {cust["name"]: cust["value"] for cust in record["custom_fields"]}
             for key, value in custom_fields.items():
                 # check first if field belongs to campaignmembers
-                if key in campaign_members_fields:
+                if campaign_members_fields.get(key) and (campaign_members_fields[key]["createable"] or campaign_members_fields[key]["updateable"]):
                     mapping["campaign_member_fields"][key] = value
                 if (fields.get(key) and (fields[key]["createable"] or fields[key]["updateable"] or key.lower() in ["id", "externalid"])) or key.endswith("__r") or fields.get(key+"Id"):
                     mapping[key] = value
