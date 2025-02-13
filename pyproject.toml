@@ -12,7 +12,7 @@ license = "Apache-2.0"
 
 [tool.poetry.dependencies]
 python = "<3.11,>=3.7.1"
-target-hotglue = "^0.0.2"
+target-hotglue = "^0.0.3"
 requests = "^2.31.0"
 backports-cached-property = "^1.0.2"
 hotglue-models-crm = { git = "https://gitlab.com/hotglue/hotglue-models-crm.git", branch = "master"}
@@ -44,5 +44,6 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 # CLI declaration
+target-salesforce = 'target_salesforce_v3.target:TargetSalesforceV3.cli'
 target-salesforce-v2 = 'target_salesforce_v3.target:TargetSalesforceV3.cli'
 target-salesforce-v3 = 'target_salesforce_v3.target:TargetSalesforceV3.cli'
