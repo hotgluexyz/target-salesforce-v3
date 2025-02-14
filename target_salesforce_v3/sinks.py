@@ -181,7 +181,7 @@ class ContactsSink(SalesforceV3Sink):
             # add here the fields that will be sent in campaignmember payload
             mapping["campaign_member_fields"] = {}
             # process custom fields
-            custom_fields = {cust["name"]: cust["value"] for cust in record["custom_fields"]}
+            custom_fields = {cust["name"]: self.process_custom_field_value(cust["value"]) for cust in record["custom_fields"]}
             for key, value in custom_fields.items():
                 # check first if field belongs to campaignmembers
                 if campaign_members_fields.get(key):
@@ -516,7 +516,7 @@ class DealsSink(SalesforceV3Sink):
                 for cf in record.get("custom_fields"):
                     if not cf['name'].endswith('__c'):
                         cf['name'] += '__c'
-                    mapping.update({cf['name']:cf['value']})
+                    mapping.update({cf['name']:self.process_custom_field_value(cf['value'])})
 
             # 2. get record using lookup_fields
             lookup_field = None
@@ -610,7 +610,7 @@ class CompanySink(SalesforceV3Sink):
             for cf in record.get("custom_fields"):
                 if not cf['name'].endswith('__c'):
                     cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+                mapping.update({cf['name']:self.process_custom_field_value(cf['value'])})
 
         return self.validate_output(mapping)
 
@@ -683,7 +683,7 @@ class RecurringDonationsSink(SalesforceV3Sink):
             for cf in record.get("custom_fields"):
                 if not cf['name'].endswith('__c'):
                     cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+                mapping.update({cf['name']:self.process_custom_field_value(cf['value'])})
 
         if record.get("external_id"):
             external_id = record["external_id"]
@@ -732,7 +732,7 @@ class CampaignSink(SalesforceV3Sink):
             for cf in record.get("custom_fields"):
                 if not cf['name'].endswith('__c'):
                     cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+                mapping.update({cf['name']:self.process_custom_field_value(cf['value'])})
 
         mapping = self.validate_output(mapping)
 
@@ -839,7 +839,7 @@ class CampaignMemberSink(SalesforceV3Sink):
             for cf in record.get("custom_fields"):
                 if not cf['name'].endswith('__c'):
                     cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+                mapping.update({cf['name']:self.process_custom_field_value(cf['value'])})
 
         mapping = self.validate_output(mapping)
         
@@ -910,7 +910,7 @@ class ActivitiesSink(SalesforceV3Sink):
             for cf in record.get("custom_fields"):
                 if not cf['name'].endswith('__c'):
                     cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+                mapping.update({cf['name']:self.process_custom_field_value(cf['value'])})
 
         mapping = self.validate_output(mapping)
 
