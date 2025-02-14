@@ -360,6 +360,11 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
                 self.new_custom_fields.append(cf_name)
         return None
 
+    def process_custom_field_value (self, value):
+        if value.lower() in ["true", "false"]:
+            return True if value.lower() == "true" else False
+        return value
+
     def add_custom_field(self,cf,label=None):
         if not label:
             label = cf
