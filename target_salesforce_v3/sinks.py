@@ -1139,4 +1139,3 @@ class FallbackSink(SalesforceV3Sink):
             self.logger.info(f"File with id {file_id} succesfully linked to object with id {linked_object_id}. Link id {response.json()['id']}")
         except Exception as e:
             self.logger.info(f"Failed while trying to link file {file_id} and object {linked_object_id}")
-            raise e
