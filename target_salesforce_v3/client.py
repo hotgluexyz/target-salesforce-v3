@@ -20,6 +20,8 @@ from target_hotglue.sinks import HotglueSink
 import os
 import json
 
+from typing import List, get_origin
+
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
 
@@ -234,11 +236,31 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         if not instance_url:
             raise Exception("instance_url not defined in config")
         return f"{instance_url}/services/data/v{self.api_version}/{endpoint}"
+    
+    def get_unified_list_fields(self):
+        list_fields = []
+        for field_name, field in self.unified_schema.__fields__.items():
+            # field.outer_type_ will give you the fully wrapped type,
+            # including List[...] or Optional[List[...]] if applicable.
+            outer_type = field.outer_type_
+
+            # Check if the outer type is specifically a list
+            if get_origin(outer_type) is list:
+                list_fields.append(field_name)
+        return list_fields
+
 
     def validate_input(self, record: dict):
         if not record:
             return {}
         if isinstance(record,dict):
+            list_fields = self.get_unified_list_fields()
+            for f in list_fields:
+                if record.get(f) and not isinstance(record[f], list):
+                    try:
+                        record[f] = json.loads(record[f])
+                    except:
+                        self.logger.warning(f"Failed to parse {f} as list. Value: {record[f]}") 
             return self.unified_schema(**record).dict()
         else:
             raise Exception(f"Invalid record: {record}")
