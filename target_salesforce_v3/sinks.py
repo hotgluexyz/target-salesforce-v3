@@ -954,7 +954,7 @@ class FallbackSink(SalesforceV3Sink):
         # lookup for record with email fields
         elif self.config.get("lookup_by_email", True) and self.name not in self.not_searchable_by_mail:
             # Try to find object instance using email
-            email_fields = ["Email", "npe01__AlternateEmail__c", "npe01__HomeEmail__c", "npe01__Preferred_Email__c", "npe01__WorkEmail__c", "PersonEmail", "Other_Email__c"]
+            email_fields = ["Email", "npe01__AlternateEmail__c", "npe01__HomeEmail__c", "npe01__Preferred_Email__c", "npe01__WorkEmail__c"]
             email_values = [record.get(email_field) for email_field in email_fields if record.get(email_field)]
 
             for email_to_check in email_values:
@@ -1139,4 +1139,4 @@ class FallbackSink(SalesforceV3Sink):
             self.logger.info(f"File with id {file_id} succesfully linked to object with id {linked_object_id}. Link id {response.json()['id']}")
         except Exception as e:
             self.logger.info(f"Failed while trying to link file {file_id} and object {linked_object_id}")
-            raise e
+            
