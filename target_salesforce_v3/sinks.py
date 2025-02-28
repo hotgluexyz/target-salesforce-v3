@@ -1087,8 +1087,10 @@ class FallbackSink(SalesforceV3Sink):
                 possible_update_fields.append(field)
 
         # grab the externalId we should use for the state
+        if record.get("externalId"):
+            state_updates["externalId"] = record["externalId"]
         # TODO: in most cases this would be 1, but what if there's more?
-        if len(possible_update_fields) > 0:
+        elif len(possible_update_fields) > 0:
             state_updates["externalId"] = record[possible_update_fields[0]]
 
         if record.get("Id"):
