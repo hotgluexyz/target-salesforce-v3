@@ -1007,7 +1007,7 @@ class FallbackSink(SalesforceV3Sink):
         record["object_type"] = object_type
 
         # If lookup_fields dict exist in config use it to check if the record exists in Salesforce
-        _lookup_fields = self.lookup_fields_dict.get(object_type)
+        _lookup_fields = self.lookup_fields_dict.get(object_type) or []
         lookup_method = self.config.get("lookup_method", "sequential")
         # Standarize lookup fields as a list of strings
         if isinstance(_lookup_fields, str):
