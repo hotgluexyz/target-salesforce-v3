@@ -1046,7 +1046,7 @@ class FallbackSink(SalesforceV3Sink):
                     lookup_res = self.request_api("GET", "search/", params={"q": query})
                     req = lookup_res.json().get("searchRecords")
                 except:
-                    self.logger.warning(f"Failed to lookup email field: {lookup_res.text}")
+                    self.logger.warning(f"Failed to lookup email field.")
                     continue
 
                 if req:
