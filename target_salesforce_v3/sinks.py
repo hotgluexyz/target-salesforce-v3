@@ -1032,14 +1032,23 @@ class FallbackSink(SalesforceV3Sink):
             email_values = [record.get(email_field) for email_field in email_fields if record.get(email_field)]
 
             for email_to_check in email_values:
+                if not email_to_check:
+                    continue
+
                 # Escape special characters on email
                 for char in ["+", "-"]:
                     if char in email_to_check:
                         email_to_check = email_to_check.replace(char, f"\{char}")
 
                 query = "".join(["FIND {", email_to_check, "} ", f" IN ALL FIELDS RETURNING {object_type}(id)"])
-                req = self.request_api("GET", "search/", params={"q": query})
-                req = req.json().get("searchRecords")
+                req = None
+                try:
+                    lookup_res = self.request_api("GET", "search/", params={"q": query})
+                    req = lookup_res.json().get("searchRecords")
+                except:
+                    self.logger.warning(f"Failed to lookup email field: {lookup_res.text}")
+                    continue
+
                 if req:
                     break
 
