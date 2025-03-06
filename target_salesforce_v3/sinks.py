@@ -242,10 +242,11 @@ class ContactsSink(SalesforceV3Sink):
         
         # If flag only_upsert_empty_fields is true, only upsert empty fields
         if self.config.get("only_upsert_empty_fields") and lookup_field:
-            campaign_member_fields = mapping.get("campaign_member_fields")
-            relevant_mapping = {k: v for k, v in mapping.items() if k != "campaign_member_fields"}
-            mapping = self.map_only_empty_fields(relevant_mapping, self.contact_type, lookup_field)
+            # pop campaign_member_fields if it exists
+            campaign_member_fields = mapping.pop("campaign_member_fields", None)
+            mapping = self.map_only_empty_fields(mapping, self.contact_type, lookup_field)
             
+            # add it back
             mapping["campaign_member_fields"] = campaign_member_fields
 
         return mapping
