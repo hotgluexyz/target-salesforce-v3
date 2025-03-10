@@ -893,9 +893,10 @@ class FallbackSink(SalesforceV3Sink):
         # keep only available fields and that are creatable or updatable
         # NOTE: we need to keep relations (__r, xId)
         record = {k:v for k,v in record.items() if k.endswith("__r") or fields.get(k+"Id") or (fields.get(k) and (fields[k]["createable"] or fields[k]["updateable"] or k.lower() in ["id", "externalid"]))}
-        # clean empty date fields to avoid salesforce parsing error
-        record = {k:v for k,v in record.items() if fields.get(k, {}).get("type") not in ["date", "datetime"] or (fields.get(k, {}).get("type") in ["date", "datetime"] and v)}
         
+        # set falsy date fields to None so they are nullified properly in Salesforce
+        record = {k: None if (not v and fields.get(k, {}).get("type") in ["date", "datetime"]) else v for k,v in record.items()}
+
         # add object_type
         record["object_type"] = object_type
 
