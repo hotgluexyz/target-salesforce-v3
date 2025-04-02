@@ -25,6 +25,7 @@ class ContactsSink(SalesforceV3Sink):
     topics = None
     contact_type = "Contact"
     available_names = ["contacts", "customers"]
+    relation_fields = [{"field": "company_name", "objectName": "Account"}]
 
     @cached_property
     def reference_data(self):
