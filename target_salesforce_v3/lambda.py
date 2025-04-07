@@ -16,7 +16,7 @@ def real_time_handler(
     except Exception as e:
         raise
 
-    mod.real_time_handler(
+    return mod.real_time_handler(
         config,
         stream_name,
         schema_line,
