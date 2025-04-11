@@ -416,21 +416,36 @@ class ContactsSink(SalesforceV3Sink):
             # add custom fields to payload
             if payload:
                 mapping.update(payload)
+            
+            # create or update campaign member
+            method = "POST"
+            url = "sobjects/CampaignMember"
+            action = "creat"
+            # check if lead or contact exists as a campaignmember
+            self.logger.info(f"INFO: Looking for CampaignMember with Contact/Lead Id:[{contact_id}] for Campaign Id:[{mapping.get('CampaignId')}].")
+            existing_campaign_member = self.query_sobject(
+                query = f"SELECT Id, CampaignId, ContactId, LeadId, Status FROM CampaignMember WHERE CampaignId='{campaign['campaign_id']}' AND (ContactId='{contact_id}' OR LeadId='{contact_id}')",
+                fields = ['CampaignId', 'ContactId', 'LeadId', 'Status', 'Id']
+            )
+            if existing_campaign_member:
+                campaign_member_id = existing_campaign_member[0]["Id"]
+                method = "PATCH"
+                url = f"sobjects/CampaignMember/{campaign_member_id}"
+                action = "updat"
 
             # Create the CampaignMember
             self.logger.info(f"INFO: Adding Contact/Lead Id:[{contact_id}] as a CampaignMember of Campaign Id:[{mapping.get('CampaignId')}].")
 
             try:
-                response = self.request_api("POST",endpoint="sobjects/CampaignMember",request_data=mapping)
-                data = response.json()
-
-                if isinstance(data, list) and data[0].get("message") == "Already a campaign member.":
-                    return
-
-                id = data.get("id")
-                self.logger.info(f"CampaignMember created with id: {id}")
+                response = self.request_api(method,endpoint=url,request_data=mapping)
+                if response.status_code == 204:
+                    id = campaign_member_id
+                else:
+                    data = response.json()
+                    id = data.get("id")
+                self.logger.info(f"CampaignMember {action}ed with id: {id}")
             except Exception as e:
-                self.logger.exception("Error encountered while creating CampaignMember")
+                self.logger.exception(f"Error encountered while {action}ing CampaignMember")
                 self.logger.exception(f"error: {e}, response: {response.json()}, request body: {response.request.body}")
                 raise e
 
