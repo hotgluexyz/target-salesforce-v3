@@ -12,9 +12,9 @@ from dateutil.parser import parse
 from datetime import datetime
 from singer_sdk.exceptions import FatalAPIError, RetriableAPIError
 
+from target_salesforce_v3.exceptions import InvalidDealRecord, MissingObjectInSalesforceError
 
-class MissingObjectInSalesforceError(Exception):
-    pass
+
 
 
 class ContactsSink(SalesforceV3Sink):
@@ -150,7 +150,7 @@ class ContactsSink(SalesforceV3Sink):
             mapping[f"{_prefix}City"] = address.get("city")
             mapping[f"{_prefix}State"] = address.get("state")
             mapping[f"{_prefix}PostalCode"] = address.get("postal_code")
-            mapping[f"{_prefix}Country"] = address.get("country")
+            mapping[f"{_prefix}Country"] = self.map_country(address.get("country"))
 
         if record.get("addresses") and len(record["addresses"]) >= 2 and self.contact_type == 'Contact':
             # Leads only have one address
@@ -162,7 +162,7 @@ class ContactsSink(SalesforceV3Sink):
             mapping["OtherCity"] = address.get("city")
             mapping["OtherState"] = address.get("state")
             mapping["OtherPostalCode"] = address.get("postal_code")
-            mapping["OtherCountry"] = address.get("country")
+            mapping["OtherCountry"] = self.map_country(address.get("country"))
 
         phone_types = {
             "Phone": ["primary"],
@@ -241,6 +241,7 @@ class ContactsSink(SalesforceV3Sink):
                     return id, True, state_updates
                 except Exception as e:
                     self.logger.exception(f"Could not PATCH to {url}: {e}")
+                    raise e
         if record:
             try:
                 response = self.request_api("POST", request_data=record)
@@ -391,83 +392,99 @@ class DealsSink(SalesforceV3Sink):
     def reference_data(self):
         params = {"q": "SELECT id, name from Account"}
         response = self.request_api("GET", endpoint="query", params=params)
-        response = response.json()["records"]
+        response = response.json().get("records",[])
         return [{k: v for k, v in r.items() if k in ["Id", "Name"]} for r in response]
 
     def preprocess_record(self, record, context):
-        if isinstance(record.get("custom_fields"), str):
-            record["custom_fields"] = json.loads(record["custom_fields"])
+        try:
+            has_name = record.get("title")
+            has_stage_name = (record.get("pipeline_stage_id") or record.get("status"))
+            has_close_date = record.get("close_date")
+            if not (has_name and has_stage_name and has_close_date):
+                raise InvalidDealRecord(
+                                        f'The record does not contain all the necessary fields for creating a new Opportunity: '
+                                        f'Name (title: {has_name}), '
+                                        f'StageName (pipeline_stage_id: {record.get("pipeline_stage_id")} or status: {record.get("status")}), '
+                                        f'CloseDate (close_date: {has_close_date})'
+                                    )
+        
+            if isinstance(record.get("custom_fields"), str):
+                try:
+                    record["custom_fields"] = json.loads(record["custom_fields"])
+                except:
+                    self.logger.info(f"custom_fields is not a valid Json document: {record['custom_fields']}")
 
-        record = self.validate_input(record)
+            record = self.validate_input(record)
 
-        stage = record.get("pipeline_stage_id")
-        if not stage:
-            stage = record.get("status") # fallback on field
+            record_stage = record.get("pipeline_stage_id")
+            if not record_stage:
+                record_stage = record.get("status") # fallback on field
 
-        stage = self.get_pickable(stage, "StageName", select_first=True)
+            record_stage = self.get_pickable(record_stage, "StageName", select_first=True)
 
-        type = record.get("type")
-        type = self.get_pickable(type, "Type")
+            record_type = record.get("type")
+            record_type = self.get_pickable(record_type, "Type")
 
-        if record.get("contact_external_id") and not record.get("contact_id"):
-            external_id = record["contact_external_id"]
-            url = "/".join(["sobjects/Contact", external_id["name"], external_id["value"]])
-            response = self.request_api("GET", endpoint=url)
-            record["contact_id"] = response.json().get("Id")
-        else:
-            # Tries to get contact_id and account_id from email
-            data = self.query_sobject(
-                query = f"SELECT Id, AccountId from Contact WHERE Email = '{record.get('contact_email')}'",
-                fields = ['Id', 'AccountId']
-            )
-            if len(data) > 0:
-                record["contact_id"] = data[0].get("Id")
-                record["company_id"] = data[0].get("AccountId")
+            if record.get("contact_external_id") and not record.get("contact_id"):
+                external_id = record["contact_external_id"]
+                url = "/".join(["sobjects/Contact", external_id["name"], external_id["value"]])
+                response = self.request_api("GET", endpoint=url)
+                record["contact_id"] = response.json().get("Id")
+            else:
+                # Tries to get contact_id and account_id from email
+                data = self.query_sobject(
+                    query = f"SELECT Id, AccountId from Contact WHERE Email = '{record.get('contact_email')}'",
+                    fields = ['Id', 'AccountId']
+                )
+                if len(data) > 0:
+                    record["contact_id"] = data[0].get("Id")
+                    record["company_id"] = data[0].get("AccountId")
 
-        mapping = {
-            "Name": record.get("title"),
-            "StageName": stage,
-            "CloseDate": record["close_date"].strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-            "Description": record.get("description"),
-            "Type": type,
-            "Amount": record.get("monetary_amount"),
-            "Probability": record.get("win_probability"),
-            "LeadSource": record.get("lead_source"),
-            "TotalOpportunityQuantity": record.get("expected_revenue"),
-            "AccountId": record.get("company_id"),
-            "OwnerId": record.get("owner_id"),
-            "ContactId": record.get("contact_id"),
-        }
+            mapping = {
+                "Name": record.get("title"),
+                "StageName": record_stage,
+                "CloseDate": record["close_date"].strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                "Description": record.get("description"),
+                "Type": record_type,
+                "Amount": record.get("monetary_amount"),
+                "Probability": record.get("win_probability"),
+                "LeadSource": record.get("lead_source"),
+                "TotalOpportunityQuantity": record.get("expected_revenue"),
+                "AccountId": record.get("company_id"),
+                "OwnerId": record.get("owner_id"),
+                "ContactId": record.get("contact_id"),
+            }
 
-        if not mapping.get("AccountId") and record.get("company_name"):
-            account_id = (
-                r["Id"]
-                for r in self.reference_data
-                if r["Name"] == record["company_name"]
-            )
-            mapping["AccountId"] = next(account_id, None)
+            if not mapping.get("AccountId") and record.get("company_name"):
+                account_id = (
+                    r["Id"]
+                    for r in self.reference_data
+                    if r["Name"] == record["company_name"]
+                )
+                mapping["AccountId"] = next(account_id, None)
 
-        if record.get("custom_fields"):
-            self.process_custom_fields(record["custom_fields"])
-            for cf in record.get("custom_fields"):
-                if not cf['name'].endswith('__c'):
-                    cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+            if record.get("custom_fields"):
+                self.process_custom_fields(record["custom_fields"])
+                for cf in record.get("custom_fields"):
+                    if not cf['name'].endswith('__c'):
+                        cf['name'] += '__c'
+                    mapping.update({cf['name']:cf['value']})
 
-        lookup_field = None
-        if record.get("external_id"):
-            external_id = record["external_id"]
-            mapping[external_id["name"]] = external_id["value"]
-            lookup_field = f'{external_id["name"]} = {external_id["value"]}'
+            lookup_field = None
+            if record.get("external_id"):
+                external_id = record["external_id"]
+                mapping[external_id["name"]] = external_id["value"]
+                lookup_field = f'{external_id["name"]} = {external_id["value"]}'
 
-        mapping = self.validate_output(mapping)
+            mapping = self.validate_output(mapping)
 
-        # If flag only_upsert_empty_fields is true, only upsert empty fields
-        if self.config.get("only_upsert_empty_fields") and lookup_field:
-            mapping = self.map_only_empty_fields(mapping, "Opportunity", lookup_field)
+            # If flag only_upsert_empty_fields is true, only upsert empty fields
+            if self.config.get("only_upsert_empty_fields") and lookup_field:
+                mapping = self.map_only_empty_fields(mapping, "Opportunity", lookup_field)
 
-        return mapping
-
+            return mapping
+        except Exception as exc:
+            return {"error": repr(exc)}
 
 class CompanySink(SalesforceV3Sink):
     endpoint = "sobjects/Account"
@@ -508,7 +525,7 @@ class CompanySink(SalesforceV3Sink):
             mapping["BillingCity"] = address.get("city")
             mapping["BillingState"] = address.get("state")
             mapping["BillingPostalCode"] = address.get("postal_code")
-            mapping["BillingCountry"] = address.get("country")
+            mapping["BillingCountry"] = self.map_country(address.get("country"))
 
         if record.get("addresses") and len(record["addresses"]) >= 2:
             address = record["addresses"][1]
@@ -517,7 +534,7 @@ class CompanySink(SalesforceV3Sink):
             mapping["ShippingCity"] = address.get("city")
             mapping["ShippingState"] = address.get("state")
             mapping["ShippingPostalCode"] = address.get("postal_code")
-            mapping["ShippingCountry"] = address.get("country")
+            mapping["ShippingCountry"] = self.map_country(address.get("country"))
 
         phone_types = {"Phone": ["primary"], "Fax": ["fax"]}
 
@@ -832,6 +849,8 @@ class FallbackSink(SalesforceV3Sink):
     @property
     def name(self):
         return self.stream_name
+    
+    not_searchable_by_mail = ["ContentVersion"]
 
     def get_fields_for_object(self, object_type):
         """Check if Salesforce has an object type and fetches its fields."""
@@ -866,6 +885,19 @@ class FallbackSink(SalesforceV3Sink):
         except MissingObjectInSalesforceError:
             self.logger.info("Skipping record, because it was not found on Salesforce.")
             return {}
+        
+        # add field to link attachments
+        if self.name == "ContentVersion":
+            fields.update({"LinkedEntityId": {"createable": True}})
+        
+        # keep only available fields and that are creatable or updatable
+        # NOTE: we need to keep relations (__r, xId)
+        record = {k:v for k,v in record.items() if k.endswith("__r") or fields.get(k+"Id") or (fields.get(k) and (fields[k]["createable"] or fields[k]["updateable"] or k.lower() in ["id", "externalid"]))}
+        
+        # set falsy date fields to None so they are nullified properly in Salesforce
+        record = {k: None if (not v and fields.get(k, {}).get("type") in ["date", "datetime"]) else v for k,v in record.items()}
+
+        # add object_type
         record["object_type"] = object_type
 
         # If lookup_fields dict exist in config use it to check if the record exists in Salesforce
@@ -883,9 +915,9 @@ class FallbackSink(SalesforceV3Sink):
             req = self.request_api("GET", "queryAll", params={"q": query})
             req = req.json().get("records")
         # lookup for record with email fields
-        else:
+        elif self.config.get("lookup_by_email", True) and self.name not in self.not_searchable_by_mail:
             # Try to find object instance using email
-            email_fields = ["Email", "npe01__AlternateEmail__c", "npe01__HomeEmail__c", "npe01__Preferred_Email__c", "npe01__WorkEmail__c"]
+            email_fields = ["Email", "npe01__AlternateEmail__c", "npe01__HomeEmail__c", "npe01__Preferred_Email__c", "npe01__WorkEmail__c", "PersonEmail", "Other_Email__c"]
             email_values = [record.get(email_field) for email_field in email_fields if record.get(email_field)]
 
             for email_to_check in email_values:
@@ -907,6 +939,15 @@ class FallbackSink(SalesforceV3Sink):
             if self.config.get("only_upsert_empty_fields"):
                 record = {k:v for k,v in record.items() if not existing_record.get(k)}
             record["Id"] = existing_record["Id"]
+
+        # convert any datetimes to string to avoid json encoding errors
+        for key in record:
+            if isinstance(record.get(key), datetime):
+                record[key] = record[key].isoformat()
+
+        # clean any read only fields
+        for field in self._target.read_only_fields.get(self.stream_name, []):
+            record.pop(field, None)
         return record
 
     def upsert_record(self, record, context):
@@ -921,7 +962,11 @@ class FallbackSink(SalesforceV3Sink):
         if record == {}:
             self.logger.info(f"Processing record for type {self.stream_name} failed. Check logs.")
             return
+        
+        # for files pop object id to link the file
+        linked_object_id = record.pop("LinkedEntityId", None) if self.name == "ContentVersion" else None
 
+        # get object fields
         fields_desc = self.sf_fields_description(object_type=object_type)
 
         possible_update_fields = []
@@ -929,6 +974,11 @@ class FallbackSink(SalesforceV3Sink):
         for field in fields_desc["external_ids"]:
             if field in record:
                 possible_update_fields.append(field)
+
+        # grab the externalId we should use for the state
+        # TODO: in most cases this would be 1, but what if there's more?
+        if len(possible_update_fields) > 0:
+            state_updates["externalId"] = record[possible_update_fields[0]]
 
         if record.get("Id"):
             fields = ["Id"]
@@ -961,6 +1011,7 @@ class FallbackSink(SalesforceV3Sink):
                     return object_id, True, state_updates
 
                 id = response.json().get("id")
+                self.link_attachment_to_object(id, linked_object_id)
                 self.logger.info(f"{object_type} updated with id: {id}")
                 return id, True, state_updates
             except Exception as e:
@@ -973,6 +1024,7 @@ class FallbackSink(SalesforceV3Sink):
                     response = self.request_api("PATCH", endpoint=url, request_data={k: record[k] for k in set(list(record.keys())) - set([id_field])})
                     id = response.json().get("id")
                     self.logger.info(f"{object_type} updated with id: {id}")
+                    self.link_attachment_to_object(id, linked_object_id)
                     return id, True, state_updates
                 except Exception as e:
                     self.logger.exception(f"Could not PATCH to {url}: {e}")
@@ -984,8 +1036,70 @@ class FallbackSink(SalesforceV3Sink):
             response = self.request_api("POST", endpoint=endpoint, request_data=record)
             id = response.json().get("id")
             self.logger.info(f"{object_type} created with id: {id}")
+            self.link_attachment_to_object(id, linked_object_id)
             return id, True, state_updates
         except Exception as e:
+            if "INVALID_FIELD_FOR_INSERT_UPDATE" in str(e):
+                try:
+                    fields = json.loads(str(e))[0]['fields']
+                except:
+                    raise Exception(f"Attempted to write read-only fields. Unable to extract read-only fields to retry request: {str(e)}")
+                
+                self.logger.warning(f"Attempted to write read-only fields: {fields}. Removing them and retrying.")
+                # append read-only field to a list
+                if not self._target.read_only_fields.get(self.stream_name):
+                    self._target.read_only_fields[self.stream_name] = []
+                self._target.read_only_fields[self.stream_name].extend(fields)
+                # remove read-only fields from record
+                for f in fields:
+                    record.pop(f, None)
+                # retry
+                response = self.request_api("POST", endpoint=endpoint, request_data=record)
+                id = response.json().get("id")
+                self.logger.info(f"{object_type} created with id: {id}")
+                return id, True, state_updates
+
             self.logger.exception(f"Error encountered while creating {object_type}")
             raise e
 
+
+    def link_attachment_to_object(self, file_id, linked_object_id):
+        if self.name != "ContentVersion":
+            return
+        if not linked_object_id:
+            self.logger.info(f"Object id not found to link file with id {file_id}")
+            return
+        try:
+            # get contentdocumentid
+            content_endpoint = "query"
+            params = {"q": f"SELECT ContentDocumentId FROM ContentVersion WHERE Id = '{file_id}'"}
+            content_document_id = self.request_api("GET", endpoint=content_endpoint, params=params)
+            content_document_id = content_document_id.json()
+            if content_document_id.get("records"):
+                content_document_id = content_document_id["records"][0]["ContentDocumentId"]
+            else:
+                raise Exception(f"Failed while trying to link file {file_id} and object {linked_object_id} because ContentDocumentId was not found")
+
+            if isinstance(linked_object_id, dict):
+                # they're using an external id, we need to look it up
+                link = list(linked_object_id.keys())[0]
+                sobject, external_id = link.split("/")
+                params = {"q": f"SELECT Id FROM {sobject} WHERE {external_id} = '{linked_object_id[link]}'"}
+                link_obj = self.request_api("GET", endpoint=content_endpoint, params=params)
+                link_obj = link_obj.json()
+                if link_obj.get("records"):
+                    linked_object_id = link_obj['records'][0]['Id']
+                else:
+                    raise Exception(f"Could not find matching {sobject} with {external_id} = '{linked_object_id[link]}'")
+
+            endpoint = "sobjects/ContentDocumentLink"
+            record = {
+                "ContentDocumentId": content_document_id,
+                "LinkedEntityId": linked_object_id,
+                "ShareType": "V"
+            }
+            response = self.request_api("POST", endpoint=endpoint, request_data=record)
+            self.logger.info(f"File with id {file_id} succesfully linked to object with id {linked_object_id}. Link id {response.json()['id']}")
+        except Exception as e:
+            self.logger.info(f"Failed while trying to link file {file_id} and object {linked_object_id}")
+            raise e

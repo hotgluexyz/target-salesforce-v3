@@ -17,6 +17,11 @@ from target_salesforce_v3.auth import SalesforceV3Authenticator
 
 from target_hotglue.sinks import HotglueSink
 
+import os
+import json
+
+__location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
+
 
 class TargetSalesforceQuotaExceededException(Exception):
     pass
@@ -227,7 +232,12 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         return f"{instance_url}/services/data/v{self.api_version}/{endpoint}"
 
     def validate_input(self, record: dict):
-        return self.unified_schema(**record).dict()
+        if not record:
+            return {}
+        if isinstance(record,dict):
+            return self.unified_schema(**record).dict()
+        else:
+            raise Exception(f"Invalid record: {record}")
 
     def sf_fields(self, object_type=None):
         if not object_type:
@@ -435,3 +445,21 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         if data:
             mapping = {k:v for k,v in mapping.items() if not data[0].get(k) or k == "Id"}
         return mapping
+    
+    def read_json_file(self, filename):
+        # read file
+        with open(os.path.join(__location__, f"{filename}"), "r") as filetoread:
+            data = filetoread.read()
+
+        # parse file
+        content = json.loads(data)
+
+        return content
+    
+    def map_country(self, country):
+        if country:
+            countries = self.read_json_file("countries.json")
+            mapped_country = countries.get(country) or (country if country in countries.values() else None)
+            if not mapped_country:
+                self.logger.info(f"Country '{country}' is not a valid value, not sending country in the payload.")
+            return mapped_country
