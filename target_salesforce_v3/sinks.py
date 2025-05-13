@@ -1036,7 +1036,7 @@ class FallbackSink(SalesforceV3Sink):
             # only for accounts
             if self.stream_name == "Account" and self.config.get("only_upsert_accounts"):
                 self.logger.info("Skipping creating new account, because only_upsert_accounts is true.")
-                return None, True, {}
+                return None, False, {"existing": True}
 
             response = self.request_api("POST", endpoint=endpoint, request_data=record)
             id = response.json().get("id")
