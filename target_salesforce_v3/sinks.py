@@ -1033,10 +1033,21 @@ class FallbackSink(SalesforceV3Sink):
             if len(possible_update_fields) > 0:
                 self.logger.info("Failed to find updatable entity, trying to create it.")
 
+            if self.name == "ContentVersion":
+                try:
+                    content_endpoint = "query"
+                    params = {"q": f"SELECT ContentDocumentId FROM ContentVersion WHERE Id = '{object_id}'"}
+                    content_document_id = self.request_api("GET", endpoint=content_endpoint, params=params)
+                    content_document_id = content_document_id.json()
+                    record["ContentDocumentId"] = content_document_id['records'][0]['ContentDocumentId']
+                except:
+                    pass
+
             response = self.request_api("POST", endpoint=endpoint, request_data=record)
             id = response.json().get("id")
             self.logger.info(f"{object_type} created with id: {id}")
-            self.link_attachment_to_object(id, linked_object_id)
+            if not record.get("ContentDocumentId"):
+                self.link_attachment_to_object(id, linked_object_id)
             return id, True, state_updates
         except Exception as e:
             if "INVALID_FIELD_FOR_INSERT_UPDATE" in str(e):
