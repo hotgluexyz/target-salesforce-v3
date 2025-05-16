@@ -1041,6 +1041,7 @@ class FallbackSink(SalesforceV3Sink):
                     content_document_id = content_document_id.json()
                     record["ContentDocumentId"] = content_document_id['records'][0]['ContentDocumentId']
                 except:
+                    self.logger.info("No existing ContentDocumentId found, creating new file.")
                     pass
 
             response = self.request_api("POST", endpoint=endpoint, request_data=record)
