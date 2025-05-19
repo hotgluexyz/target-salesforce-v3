@@ -1034,7 +1034,7 @@ class FallbackSink(SalesforceV3Sink):
                 self.logger.info("Failed to find updatable entity, trying to create it.")
             
             # only for accounts
-            if self.stream_name == "Account" and self.config.get("only_upsert_accounts"):
+            if object_type == "Account" and self.config.get("only_upsert_accounts"):
                 self.logger.info("Skipping creating new account, because only_upsert_accounts is true.")
                 return None, False, {"existing": True}
 
