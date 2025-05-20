@@ -35,6 +35,7 @@ class TargetSalesforceV3(TargetHotglue):
     MAX_PARALLELISM = 10
     SINK_TYPES = SINK_TYPES
     read_only_fields = {}
+    GLOBAL_PRIMARY_KEY = "Id"
 
     def get_sink_class(self, stream_name: str):
         """Get sink for a stream."""
