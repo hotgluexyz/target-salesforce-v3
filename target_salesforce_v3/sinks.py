@@ -389,13 +389,14 @@ class ContactsSink(SalesforceV3Sink):
             # Assuming campaigns are always created first
             if campaign.get("id") is None:
                 # data = self.get_query(endpoint=f"sobjects/Campaign/Name/{campaign.get('name')}")
+                query_safe_campaign_name = campaign.get('name').replace("'", r"\'")
                 data = self.query_sobject(
-                    query = f"SELECT Id, CreatedDate from Campaign WHERE Name = '{campaign.get('name')}' ORDER BY CreatedDate ASC",
+                    query = f"SELECT Id, CreatedDate from Campaign WHERE Name = '{query_safe_campaign_name}' ORDER BY CreatedDate ASC",
                     fields = ['Id']
                     )
                 # Extract capaign id from record
                 if not data:
-                    self.logger.info(f"No Campaign found with Name = '{campaign.get('name')}'\nCreating campaign ...")
+                    self.logger.info(f"No Campaign found with Name = '{query_safe_campaign_name}'\nCreating campaign ...")
                     # Create the campaign since it doesn't exist
                     response = self.request_api("POST", endpoint="sobjects/Campaign", request_data={
                         "Name": campaign.get("name"),
