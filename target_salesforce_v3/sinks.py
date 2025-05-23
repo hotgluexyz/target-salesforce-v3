@@ -126,16 +126,15 @@ class ContactsSink(SalesforceV3Sink):
                     lookup_field = f"Id = '{id}'"
 
         # We map tags => topics in Salesforce
-        if record.get('tags'):
-            self.topics = record['tags']
+        self.topics = record.get('tags')
 
         # We map campaigns => campaigns in Salesforce
         if record.get('campaigns'):
             self.campaigns = record['campaigns']
-
-        # We map lists => campaigns in Salesforce
-        if not self.campaigns and record.get("lists"):
+        elif record.get("lists"):
             self.campaigns = [{"name": list_item} for list_item in record.get("lists")]
+        else:
+            self.campaigns = None
 
         if record.get("addresses"):
             address = record["addresses"][0]
