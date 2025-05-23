@@ -111,16 +111,15 @@ class ContactsSink(SalesforceV3Sink):
             mapping.update({"Company": record.get("company_name")})
 
         # We map tags => topics in Salesforce
-        if record.get('tags'):
-            self.topics = record['tags']
+        self.topics = record.get('tags')
 
         # We map campaigns => campaigns in Salesforce
         if record.get('campaigns'):
             self.campaigns = record['campaigns']
-
-        # We map lists => campaigns in Salesforce
-        if not self.campaigns and record.get("lists"):
+        elif record.get("lists"):
             self.campaigns = [{"name": list_item} for list_item in record.get("lists")]
+        else:
+            self.campaigns = None
 
         if record.get("addresses"):
             address = record["addresses"][0]
@@ -389,13 +388,14 @@ class ContactsSink(SalesforceV3Sink):
             # Assuming campaigns are always created first
             if campaign.get("id") is None:
                 # data = self.get_query(endpoint=f"sobjects/Campaign/Name/{campaign.get('name')}")
+                query_safe_campaign_name = campaign.get('name').replace("'", r"\'")
                 data = self.query_sobject(
-                    query = f"SELECT Id, CreatedDate from Campaign WHERE Name = '{campaign.get('name')}' ORDER BY CreatedDate ASC",
+                    query = f"SELECT Id, CreatedDate from Campaign WHERE Name = '{query_safe_campaign_name}' ORDER BY CreatedDate ASC",
                     fields = ['Id']
                     )
                 # Extract capaign id from record
                 if not data:
-                    self.logger.info(f"No Campaign found with Name = '{campaign.get('name')}'\nCreating campaign ...")
+                    self.logger.info(f"No Campaign found with Name = '{query_safe_campaign_name}'\nCreating campaign ...")
                     # Create the campaign since it doesn't exist
                     response = self.request_api("POST", endpoint="sobjects/Campaign", request_data={
                         "Name": campaign.get("name"),
