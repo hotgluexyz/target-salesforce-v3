@@ -977,7 +977,11 @@ class FallbackSink(SalesforceV3Sink):
         # grab the externalId we should use for the state
         # TODO: in most cases this would be 1, but what if there's more?
         if len(possible_update_fields) > 0:
-            state_updates["externalId"] = record[possible_update_fields[0]]
+            if self.key_properties and self.key_properties[0] in possible_update_fields:
+                state_updates["externalId"] = record[self.key_properties[0]]
+                possible_update_fields = self.key_properties
+            else:
+                state_updates["externalId"] = record[possible_update_fields[0]]
 
         if record.get("Id"):
             fields = ["Id"]
@@ -1021,6 +1025,8 @@ class FallbackSink(SalesforceV3Sink):
                 try:
                     url = "/".join([endpoint, id_field, record.get(id_field)])
                     response = self.request_api("PATCH", endpoint=url, request_data={k: record[k] for k in set(list(record.keys())) - set([id_field])})
+                    if response.status_code == 300:
+                        raise Exception(f"Multiple records found for {id_field} = {record.get(id_field)}, response: {response.json()}")
                     id = response.json().get("id")
                     self.logger.info(f"{object_type} updated with id: {id}")
                     self.link_attachment_to_object(id, linked_object_id)
