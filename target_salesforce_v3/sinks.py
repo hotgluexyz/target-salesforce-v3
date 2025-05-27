@@ -1025,6 +1025,8 @@ class FallbackSink(SalesforceV3Sink):
                 try:
                     url = "/".join([endpoint, id_field, record.get(id_field)])
                     response = self.request_api("PATCH", endpoint=url, request_data={k: record[k] for k in set(list(record.keys())) - set([id_field])})
+                    if response.status_code == 300:
+                        raise Exception(f"Multiple records found for {id_field} = {record.get(id_field)}, response: {response.json()}")
                     id = response.json().get("id")
                     self.logger.info(f"{object_type} updated with id: {id}")
                     self.link_attachment_to_object(id, linked_object_id)
