@@ -1041,7 +1041,7 @@ class FallbackSink(SalesforceV3Sink):
             # only for accounts
             if object_type == "Account" and self.config.get("only_upsert_accounts"):
                 self.logger.info("Skipping creating new account, because only_upsert_accounts is true.")
-                return None, False, {"existing": True}
+                return "missing", False, {"existing": True}
 
             if self.name == "ContentVersion":
                 try:
