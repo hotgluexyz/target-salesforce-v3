@@ -92,7 +92,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
 
     def check_salesforce_limits(self, response):
         limit_info = response.headers.get("Sforce-Limit-Info")
-        quota_percent_total = 80
+        quota_percent_total = self.config.get("quota_percent_total", 80)
 
         match = re.search("^api-usage=(\d+)/(\d+)$", limit_info)
         if match is None:
