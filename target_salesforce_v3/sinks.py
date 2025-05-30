@@ -1021,6 +1021,7 @@ class FallbackSink(SalesforceV3Sink):
                 self.logger.exception(f"Error encountered while updating {object_type}")
 
         if len(possible_update_fields) > 0:
+            patch_errors = {}
             for id_field in possible_update_fields:
                 try:
                     url = "/".join([endpoint, id_field, record.get(id_field)])
@@ -1032,7 +1033,10 @@ class FallbackSink(SalesforceV3Sink):
                     self.link_attachment_to_object(id, linked_object_id)
                     return id, True, state_updates
                 except Exception as e:
-                    self.logger.exception(f"Could not PATCH to {url}: {e}")
+                    patch_errors[id_field] = str(e)
+
+            if patch_errors:
+                return None, False, {"errors": f"failed during updating record, patch errors by externalId field {patch_errors}"}
 
         try:
             if len(possible_update_fields) > 0:
