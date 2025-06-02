@@ -1015,7 +1015,7 @@ class FallbackSink(SalesforceV3Sink):
 
                 id = response.json().get("id")
                 self.link_attachment_to_object(id, linked_object_id)
-                self.logger.info(f"{object_type} updated with id: {id}")
+                self.logger.info(f"{object_type} updated using url {url} with id: {id}")
                 return id, True, state_updates
             except Exception as e:
                 self.logger.exception(f"Error encountered while updating {object_type}")
@@ -1029,7 +1029,7 @@ class FallbackSink(SalesforceV3Sink):
                     if response.status_code == 300:
                         raise Exception(f"Multiple records found for {id_field} = {record.get(id_field)}, response: {response.json()}")
                     id = response.json().get("id")
-                    self.logger.info(f"{object_type} updated with id: {id}")
+                    self.logger.info(f"{object_type} updated using id_field {id_field} and url {url} with id: {id}")
                     self.link_attachment_to_object(id, linked_object_id)
                     return id, True, state_updates
                 except Exception as e:
