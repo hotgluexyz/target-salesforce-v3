@@ -1024,6 +1024,15 @@ class FallbackSink(SalesforceV3Sink):
         if len(possible_update_fields) > 0:
             for id_field in possible_update_fields:
                 try:
+                    # patch with externalId field updates if exists creates if not, adding additional validation for accounts
+                    if object_type == "Account" and self.config.get("only_upsert_accounts"):
+                        # check if account already exists by externalId field
+                        existing_account = self.query_sobject(f"SELECT Id,{id_field} FROM {object_type} WHERE {id_field}='{record.get(id_field)}'")
+                        if not existing_account:
+                            self.logger.info("Skipping creating new account, because only_upsert_accounts is true.")
+                            return "missing", False, {"existing": True}
+                        
+                    
                     url = "/".join([endpoint, id_field, record.get(id_field)])
                     response = self.request_api("PATCH", endpoint=url, request_data={k: record[k] for k in set(list(record.keys())) - set([id_field])})
                     if response.status_code == 300:
@@ -1041,8 +1050,8 @@ class FallbackSink(SalesforceV3Sink):
             
             # only for accounts
             if object_type == "Account" and self.config.get("only_upsert_accounts"):
-                self.logger.info("Skipping creating new account, because only_upsert_accounts is true.")
-                return "missing", False, {"existing": True}
+                    self.logger.info("Skipping creating new account, because only_upsert_accounts is true.")
+                    return "missing", False, {"existing": True}
 
             if self.name == "ContentVersion":
                 try:
