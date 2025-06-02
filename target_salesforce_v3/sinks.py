@@ -1015,7 +1015,7 @@ class FallbackSink(SalesforceV3Sink):
 
                 id = response.json().get("id")
                 self.link_attachment_to_object(id, linked_object_id)
-                self.logger.info(f"{object_type} updated with id: {id}")
+                self.logger.info(f"{object_type} updated using url {url} with id: {id}")
                 return id, True, state_updates
             except Exception as e:
                 self.logger.exception(f"Error encountered while updating {object_type}")
@@ -1024,12 +1024,21 @@ class FallbackSink(SalesforceV3Sink):
         if len(possible_update_fields) > 0:
             for id_field in possible_update_fields:
                 try:
+                    # patch with externalId field updates if exists creates if not, adding additional validation for accounts
+                    if object_type == "Account" and self.config.get("only_upsert_accounts"):
+                        # check if account already exists by externalId field
+                        existing_account = self.query_sobject(f"SELECT Id,{id_field} FROM {object_type} WHERE {id_field}='{record.get(id_field)}'")
+                        if not existing_account:
+                            self.logger.info("Skipping creating new account, because only_upsert_accounts is true.")
+                            return "missing", False, {"existing": True}
+                        
+                    
                     url = "/".join([endpoint, id_field, record.get(id_field)])
                     response = self.request_api("PATCH", endpoint=url, request_data={k: record[k] for k in set(list(record.keys())) - set([id_field])})
                     if response.status_code == 300:
                         raise Exception(f"Multiple records found for {id_field} = {record.get(id_field)}, response: {response.json()}")
                     id = response.json().get("id")
-                    self.logger.info(f"{object_type} updated with id: {id}")
+                    self.logger.info(f"{object_type} updated using id_field {id_field} and url {url} with id: {id}")
                     self.link_attachment_to_object(id, linked_object_id)
                     return id, True, state_updates
                 except Exception as e:
