@@ -341,7 +341,7 @@ class ContactsSink(SalesforceV3Sink):
                 campaign_name = campaign.get("name")
                 
                 # Only try to find campaign by ID if it looks like a valid Salesforce ID
-                if campaign_name and campaign_name.isalnum():
+                if campaign_name and (len(campaign_name) == 18 or len(campaign_name) == 15) and campaign_name.isalnum():
                     data = self.query_sobject(
                         query = f"SELECT Id, CreatedDate from Campaign WHERE Id = '{campaign_name}' ORDER BY CreatedDate ASC",
                         fields = ['Id']
