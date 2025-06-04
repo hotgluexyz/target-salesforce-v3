@@ -338,17 +338,29 @@ class ContactsSink(SalesforceV3Sink):
             # Checks if there's an id, if not, query it
             # Assuming campaigns are always created first
             if campaign.get("id") is None:
-                # data = self.get_query(endpoint=f"sobjects/Campaign/Name/{campaign.get('name')}")
-                data = self.query_sobject(
-                    query = f"SELECT Id, CreatedDate from Campaign WHERE Name = '{campaign.get('name')}' ORDER BY CreatedDate ASC",
-                    fields = ['Id']
+                campaign_name = campaign.get("name")
+                
+                # Only try to find campaign by ID if it looks like a valid Salesforce ID
+                if campaign_name and campaign_name.isalnum():
+                    data = self.query_sobject(
+                        query = f"SELECT Id, CreatedDate from Campaign WHERE Id = '{campaign_name}' ORDER BY CreatedDate ASC",
+                        fields = ['Id']
                     )
-                # Extract capaign id from record
+                else:
+                    data = []
+                
+                # If not found by ID or not a valid ID format, try to find by Name
                 if not data:
-                    self.logger.info(f"No Campaign found with Name = '{campaign.get('name')}'\nCreating campaign ...")
+                    data = self.query_sobject(
+                        query = f"SELECT Id, CreatedDate from Campaign WHERE Name = '{campaign_name}' ORDER BY CreatedDate ASC",
+                        fields = ['Id']
+                    )
+                    
+                if not data:
+                    self.logger.info(f"No Campaign found with ID or Name = '{campaign_name}'\nCreating campaign ...")
                     # Create the campaign since it doesn't exist
                     response = self.request_api("POST", endpoint="sobjects/Campaign", request_data={
-                        "Name": campaign.get("name"),
+                        "Name": campaign_name,
                     })
                     id = response.json().get("id")
                     self.logger.info(f"{self.name} created with id: {id}")
