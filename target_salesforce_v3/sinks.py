@@ -98,6 +98,8 @@ class ContactsSink(SalesforceV3Sink):
             "Company": record.get("company_name"),
             "Rating": rating,
             "AnnualRevenue": record.get("annual_revenue"),
+            "Campaigns": record.get("campaigns"),
+            "Lists": record.get("lists"),
         }
 
         mapping_copy = mapping.copy()
@@ -112,14 +114,6 @@ class ContactsSink(SalesforceV3Sink):
 
         # We map tags => topics in Salesforce
         self.topics = record.get('tags')
-
-        # We map campaigns => campaigns in Salesforce
-        if record.get('campaigns'):
-            self.campaigns = record['campaigns']
-        elif record.get("lists"):
-            self.campaigns = [{"name": list_item} for list_item in record.get("lists")]
-        else:
-            self.campaigns = None
 
         if record.get("addresses"):
             address = record["addresses"][0]
@@ -202,8 +196,13 @@ class ContactsSink(SalesforceV3Sink):
             )
             mapping["AccountId"] = next(account_id, None)
 
+        mapping_copy = mapping.copy()
         # validate mapping
         mapping = self.validate_output(mapping)
+        # add campaigns and lists back to mapping as validate_output removes them
+        mapping["Campaigns"] = mapping_copy.get("Campaigns", [])
+        mapping["Lists"] = mapping_copy.get("Lists", [])    
+        del mapping_copy
 
         # 2. Check if record exist based on default lookup_fields or lookup_fields set in config
         lookup_field = None
@@ -262,6 +261,10 @@ class ContactsSink(SalesforceV3Sink):
             fields_dict = self.sf_fields_description()
             fields = fields_dict["external_ids"]
 
+        # remove campaigns and lists from record because it doesn't exist in Contact's object
+        record_campaigns = record.pop("Campaigns", [])
+        record_lists = record.pop("Lists", [])
+
         for field in fields:
             if record.get(field):
                 try:
@@ -279,8 +282,8 @@ class ContactsSink(SalesforceV3Sink):
                     record = None
 
                     # Check for campaigns to be added
-                    if self.campaigns:
-                        self.assign_to_campaign(id, self.campaigns, campaign_members_fields)
+                    if record_campaigns or record_lists:
+                        self.assign_to_campaign(id, record_campaigns, record_lists, campaign_members_fields)
 
                     if self.topics:
                         self.assign_to_topic(id,self.topics)
@@ -296,8 +299,8 @@ class ContactsSink(SalesforceV3Sink):
                 id = response.json().get("id")
                 self.logger.info(f"{self.contact_type} created with id: {id}")
                 # Check for campaigns to be added
-                if self.campaigns:
-                    self.assign_to_campaign(id,self.campaigns, campaign_members_fields)
+                if record_campaigns or record_lists:
+                    self.assign_to_campaign(id, record_campaigns, record_lists, campaign_members_fields)
 
                 if self.topics:
                     self.assign_to_topic(id,self.topics)
@@ -373,41 +376,87 @@ class ContactsSink(SalesforceV3Sink):
                 self.logger.exception("Error encountered while creating TopicAssignment")
                 raise e
 
-    def assign_to_campaign(self,contact_id,campaigns:list, payload={}) -> None:
+    def assign_to_campaign(self, contact_id: str, campaigns: list[dict], lists: list[str], payload: dict | None = None) -> None:
         """
-        This function recieves a contact_id and a list of campaigns and assigns the contact_id to each campaign
+        Assign a contact_id (or lead_id) to each campaign derived from `campaigns` or `lists`.
 
-        Input:
-        contact_id : str
-        campaigns : list[dict] eg. [{'id': None, 'name': 'Big Campaign'}, {'id': None, 'name': 'Huge Campaign'}]
+        Args:
+            contact_id: str
+            campaigns: list of dicts, e.g. [{'id': None, 'name': 'Big Campaign'}, ...]
+            lists: list of campaign identifiers (either 18- or 15-char Salesforce IDs, or names)
+            payload: optional dict of extra CampaignMember fields
         """
 
+        payload = {} if payload is None else payload
+        campaigns = [] if campaigns is None else campaigns
+        lists = [] if lists is None else lists
+
+        def escape_sql_quotes(s: str) -> str:
+            return s.replace("'", r"\'")
+
+        # Query templates
+        campaign_by_id_query = lambda cid: (
+            f"SELECT Id FROM Campaign WHERE Id = '{escape_sql_quotes(cid)}' ORDER BY CreatedDate ASC"
+        )
+        campaign_by_name_query = lambda name: (
+            f"SELECT Id FROM Campaign WHERE Name = '{escape_sql_quotes(name)}' ORDER BY CreatedDate ASC"
+        )
+
+        # 1) Collect campaign IDs from `lists`
+        campaign_ids: list[str] = []
+        for identifier in lists:
+            record = None
+            # check if identifier is a valid Salesforce ID
+            if (len(identifier) in (18, 15)) and identifier.isalnum():
+                record = self.query_sobject(
+                    query=campaign_by_id_query(identifier),
+                    fields=["Id"]
+                )
+            if not record:
+                record = self.query_sobject(
+                    query=campaign_by_name_query(identifier),
+                    fields=["Id"]
+                )
+            if record:
+                campaign_ids.append(record[0]["Id"])
+
+        # 2) Resolve or create campaigns from `campaigns` param
         for campaign in campaigns:
+            cid = campaign.get("id")
+            if cid:
+                campaign_ids.append(cid)
+                continue
 
-            # Checks if there's an id, if not, query it
-            # Assuming campaigns are always created first
-            if campaign.get("id") is None:
-                # data = self.get_query(endpoint=f"sobjects/Campaign/Name/{campaign.get('name')}")
-                query_safe_campaign_name = campaign.get('name').replace("'", r"\'")
-                data = self.query_sobject(
-                    query = f"SELECT Id, CreatedDate from Campaign WHERE Name = '{query_safe_campaign_name}' ORDER BY CreatedDate ASC",
-                    fields = ['Id']
-                    )
-                # Extract capaign id from record
-                if not data:
-                    self.logger.info(f"No Campaign found with Name = '{query_safe_campaign_name}'\nCreating campaign ...")
-                    # Create the campaign since it doesn't exist
-                    response = self.request_api("POST", endpoint="sobjects/Campaign", request_data={
-                        "Name": campaign.get("name"),
-                    })
-                    id = response.json().get("id")
-                    self.logger.info(f"{self.name} created with id: {id}")
-                    campaign['campaign_id'] = id
-                else:
-                    campaign['campaign_id'] = data[0]['Id']
+            name = campaign.get("name", "")
+            if not name:
+                continue
 
-            # Assigns the customer_id to the campaign_id or lead_id
-            mapping = {"CampaignId": campaign.get("campaign_id") or campaign.get("id")}
+            safe_name = escape_sql_quotes(name)
+            record = self.query_sobject(
+                query=campaign_by_name_query(safe_name),
+                fields=["Id"]
+            )
+            if record:
+                cid = record[0]["Id"]
+            else:
+                self.logger.info(f"No Campaign found with Name='{safe_name}'. Creating new Campaign.")
+                response = self.request_api(
+                    "POST",
+                    endpoint="sobjects/Campaign",
+                    request_data={"Name": name}
+                )
+                cid = response.json().get("id")
+                self.logger.info(f"Created Campaign '{name}' with id: {cid}")
+
+            campaign["campaign_id"] = cid
+            campaign_ids.append(cid)
+
+        # Deduplicate
+        campaign_ids = list(set(campaign_ids))
+
+        # 3) For each campaign_id, upsert CampaignMember
+        for cid in campaign_ids:
+            mapping: dict[str, str] = {"CampaignId": cid}
             if self.contact_type == "Contact":
                 mapping.update({"ContactId": contact_id})
             else:
@@ -420,11 +469,15 @@ class ContactsSink(SalesforceV3Sink):
             # create or update campaign member
             method = "POST"
             url = "sobjects/CampaignMember"
-            action = "creat"
+            action = "create"
             # check if lead or contact exists as a campaignmember
             self.logger.info(f"INFO: Looking for CampaignMember with Contact/Lead Id:[{contact_id}] for Campaign Id:[{mapping.get('CampaignId')}].")
             existing_campaign_member = self.query_sobject(
-                query = f"SELECT Id, CampaignId, ContactId, LeadId, Status FROM CampaignMember WHERE CampaignId='{campaign['campaign_id']}' AND (ContactId='{contact_id}' OR LeadId='{contact_id}')",
+                query=(
+                    "SELECT Id, CampaignId, ContactId, LeadId, Status FROM CampaignMember "
+                    f"WHERE CampaignId='{cid}' AND "
+                    f"(ContactId='{contact_id}' OR LeadId='{contact_id}')"
+                ),
                 fields = ['CampaignId', 'ContactId', 'LeadId', 'Status', 'Id']
             )
             if existing_campaign_member:
