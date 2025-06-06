@@ -98,9 +98,10 @@ class ContactsSink(SalesforceV3Sink):
             "Company": record.get("company_name"),
             "Rating": rating,
             "AnnualRevenue": record.get("annual_revenue"),
-            "Campaigns": record.get("campaigns"),
-            "Lists": record.get("lists"),
         }
+
+        campaigns = record.get("campaigns")
+        lists = record.get("lists")
 
         mapping_copy = mapping.copy()
         for key,value in mapping_copy.items():
@@ -196,13 +197,11 @@ class ContactsSink(SalesforceV3Sink):
             )
             mapping["AccountId"] = next(account_id, None)
 
-        mapping_copy = mapping.copy()
         # validate mapping
         mapping = self.validate_output(mapping)
         # add campaigns and lists back to mapping as validate_output removes them
-        mapping["Campaigns"] = mapping_copy.get("Campaigns", [])
-        mapping["Lists"] = mapping_copy.get("Lists", [])    
-        del mapping_copy
+        mapping["_campaigns"] = campaigns
+        mapping["_lists"] = lists
 
         # 2. Check if record exist based on default lookup_fields or lookup_fields set in config
         lookup_field = None
@@ -262,8 +261,8 @@ class ContactsSink(SalesforceV3Sink):
             fields = fields_dict["external_ids"]
 
         # remove campaigns and lists from record because it doesn't exist in Contact's object
-        record_campaigns = record.pop("Campaigns", [])
-        record_lists = record.pop("Lists", [])
+        record_campaigns = record.pop("_campaigns", [])
+        record_lists = record.pop("_lists", [])
 
         for field in fields:
             if record.get(field):
@@ -419,6 +418,17 @@ class ContactsSink(SalesforceV3Sink):
                 )
             if record:
                 campaign_ids.append(record[0]["Id"])
+            else:
+                self.logger.info(f"No Campaign found with Name='{identifier}'. Creating new Campaign.")
+                sql_safe_identifier = escape_sql_quotes(identifier)
+                response = self.request_api(
+                    "POST",
+                    endpoint="sobjects/Campaign",
+                    request_data={"Name": sql_safe_identifier}
+                )
+                cid = response.json().get("id")
+                self.logger.info(f"Created Campaign '{sql_safe_identifier}' with id: {cid}")
+                campaign_ids.append(cid)
 
         # 2) Resolve or create campaigns from `campaigns` param
         for campaign in campaigns:
