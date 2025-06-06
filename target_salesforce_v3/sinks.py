@@ -375,7 +375,7 @@ class ContactsSink(SalesforceV3Sink):
                 self.logger.exception("Error encountered while creating TopicAssignment")
                 raise e
 
-    def assign_to_campaign(self, contact_id: str, campaigns: list[dict], lists: list[str], payload: dict | None = None) -> None:
+    def assign_to_campaign(self, contact_id, campaigns: list, lists: list, payload=None):
         """
         Assign a contact_id (or lead_id) to each campaign derived from `campaigns` or `lists`.
 
@@ -479,7 +479,7 @@ class ContactsSink(SalesforceV3Sink):
             # create or update campaign member
             method = "POST"
             url = "sobjects/CampaignMember"
-            action = "create"
+            action = "creat"
             # check if lead or contact exists as a campaignmember
             self.logger.info(f"INFO: Looking for CampaignMember with Contact/Lead Id:[{contact_id}] for Campaign Id:[{mapping.get('CampaignId')}].")
             existing_campaign_member = self.query_sobject(
