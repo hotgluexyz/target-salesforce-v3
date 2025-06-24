@@ -199,9 +199,6 @@ class ContactsSink(SalesforceV3Sink):
 
         # validate mapping
         mapping = self.validate_output(mapping)
-        # add campaigns and lists back to mapping as validate_output removes them
-        mapping["_campaigns"] = campaigns
-        mapping["_lists"] = lists
 
         # 2. Check if record exist based on default lookup_fields or lookup_fields set in config
         lookup_field = None
@@ -245,6 +242,9 @@ class ContactsSink(SalesforceV3Sink):
             
             # add it back
             mapping["campaign_member_fields"] = campaign_member_fields
+
+        mapping["_campaigns"] = campaigns
+        mapping["_lists"] = lists
 
         return mapping
 
