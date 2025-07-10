@@ -464,13 +464,20 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         self.logger.info(f"Field permission for {field_name} updated for permission set {permission_set_id}, response: {response.text}")
     
 
-    def map_only_empty_fields(self, mapping, sobject_name, lookup_field):       
+    def map_only_empty_fields(self, mapping, sobject_name, lookup_field, fields_to_exclude=None):       
         fields = ",".join([field for field in mapping.keys()])
         data = self.query_sobject(
             query = f"SELECT {fields} from {sobject_name} WHERE {lookup_field}",
         )
         if data:
-            mapping = {k:v for k,v in mapping.items() if not data[0].get(k) or k == "Id"}
+            existing_record = data[0]
+            if fields_to_exclude:
+                mapping = {k:v for k,v in mapping.items() if 
+                          k == "Id" or  # Always include Id
+                          k not in fields_to_exclude or  # Include if not in exclusion list
+                          not existing_record.get(k)}  # Include if existing value is empty
+            else:
+                mapping = {k:v for k,v in mapping.items() if not existing_record.get(k) or k == "Id"}
         return mapping
     
     def read_json_file(self, filename):
