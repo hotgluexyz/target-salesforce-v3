@@ -42,6 +42,49 @@ class ContactsSink(SalesforceV3Sink):
     def campaign_member_fields(self):
         return self.get_fields_for_object("CampaignMember")
 
+    @property
+    def unified_to_sf_mapping(self):
+        """
+        This property returns the mapping of the unified schema to the Salesforce schema.
+        """
+        return  {
+                    "first_name": "FirstName",
+                    "last_name": "LastName", 
+                    "email": "Email",
+                    "title": "Title",
+                    "description": "Description",
+                    "lead_source": "LeadSource",
+                    "salutation": "Salutation",
+                    "birthdate": "Birthdate",
+                    "owner_id": "OwnerId",
+                    "unsubscribed": "HasOptedOutOfEmail",
+                    "subscribe_status": "HasOptedOutOfEmail",
+                    "number_of_employees": "NumberOfEmployees",
+                    "website": "Website",
+                    "industry": "Industry",
+                    "company_name": "Company",
+                    "rating": "Rating",
+                    "annual_revenue": "AnnualRevenue",
+                    "department": "Department",
+                    "addresses": "MailingStreet",
+                    "addresses": "MailingCity",
+                    "addresses": "MailingState",
+                    "addresses": "MailingPostalCode",
+                    "addresses": "MailingCountry",
+                    "addresses": "OtherStreet",
+                    "addresses": "OtherCity",
+                    "addresses": "OtherState",
+                    "addresses": "OtherPostalCode",
+                    "addresses": "OtherCountry",
+                    "phone_numbers": "Phone",
+                    "phone_numbers": "OtherPhone",
+                    "phone_numbers": "MobilePhone",
+                    "phone_numbers": "HomePhone",
+                    "tags": "Topics",
+                    "campaigns": "Campaigns",
+                    "lists": "Campaigns"
+                }
+
     def preprocess_record(self, record: dict, context: dict):
         # 1. Map and process record
         # Parse data
@@ -234,12 +277,16 @@ class ContactsSink(SalesforceV3Sink):
                     mapping.update({"Id":id})
                     lookup_field = f"Id = '{id}'"
         
-        # If flag only_upsert_empty_fields is true, only upsert empty fields
-        if self.config.get("only_upsert_empty_fields") and lookup_field:
+
+        only_upsert_empty_fields = self.config.get("only_upsert_empty_fields")
+        if only_upsert_empty_fields and lookup_field:
+            if isinstance(only_upsert_empty_fields, list):
+                fields_to_exclude = [self.unified_to_sf_mapping[field] if field in self.unified_to_sf_mapping else field for field in only_upsert_empty_fields]
+            else:
+                fields_to_exclude = []
             # pop campaign_member_fields if it exists
             campaign_member_fields = mapping.pop("campaign_member_fields", None)
-            mapping = self.map_only_empty_fields(mapping, self.contact_type, lookup_field)
-            
+            mapping = self.map_only_empty_fields(mapping, self.contact_type, lookup_field, fields_to_exclude)
             # add it back
             mapping["campaign_member_fields"] = campaign_member_fields
 
