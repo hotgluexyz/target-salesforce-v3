@@ -66,23 +66,11 @@ class ContactsSink(SalesforceV3Sink):
                     "rating": "Rating",
                     "annual_revenue": "AnnualRevenue",
                     "department": "Department",
-                    "addresses": "MailingStreet",
-                    "addresses": "MailingCity",
-                    "addresses": "MailingState",
-                    "addresses": "MailingPostalCode",
-                    "addresses": "MailingCountry",
-                    "addresses": "OtherStreet",
-                    "addresses": "OtherCity",
-                    "addresses": "OtherState",
-                    "addresses": "OtherPostalCode",
-                    "addresses": "OtherCountry",
-                    "phone_numbers": "Phone",
-                    "phone_numbers": "OtherPhone",
-                    "phone_numbers": "MobilePhone",
-                    "phone_numbers": "HomePhone",
                     "tags": "Topics",
                     "campaigns": "Campaigns",
-                    "lists": "Campaigns"
+                    "lists": "Campaigns",
+                    "addresses": ["MailingStreet", "MailingCity", "MailingState", "MailingPostalCode", "MailingCountry", "OtherStreet", "OtherCity", "OtherState", "OtherPostalCode", "OtherCountry"],
+                    "phone_numbers": ["Phone", "OtherPhone", "MobilePhone", "HomePhone"]
                 }
 
     def preprocess_record(self, record: dict, context: dict):
@@ -281,7 +269,16 @@ class ContactsSink(SalesforceV3Sink):
         only_upsert_empty_fields = self.config.get("only_upsert_empty_fields")
         if only_upsert_empty_fields and lookup_field:
             if isinstance(only_upsert_empty_fields, list):
-                fields_to_exclude = [self.unified_to_sf_mapping[field] if field in self.unified_to_sf_mapping else field for field in only_upsert_empty_fields]
+                fields_to_exclude = []
+                for field in only_upsert_empty_fields:
+                    if field in self.unified_to_sf_mapping:
+                        value = self.unified_to_sf_mapping[field]
+                        if isinstance(value, list):
+                            fields_to_exclude.extend(value)
+                        else:
+                            fields_to_exclude.append(value)
+                    else:
+                        fields_to_exclude.append(field)
             else:
                 fields_to_exclude = []
             # pop campaign_member_fields if it exists
