@@ -1004,6 +1004,8 @@ class FallbackSink(SalesforceV3Sink):
         if len(missing_fields) > 0.5 * len(fields):
             self.logger.info(f"This record may require more fields to be mapped. Missing fields: {missing_fields}")
 
+        self.logger.info(f"Trying to update/create {object_type} with record: {record}")
+
         if record.get("Id") or record.get("id"):
             object_id = record.pop("Id") or record.pop("id")
             url = "/".join([endpoint, object_id])
@@ -1065,7 +1067,7 @@ class FallbackSink(SalesforceV3Sink):
                     self.logger.info("No existing ContentDocumentId found, creating new file.")
                     pass
 
-            self.logger.info(f"Trying to create {object_type} with record: {record}")
+            self.logger.info(f"Trying to create {object_type}")
             response = self.request_api("POST", endpoint=endpoint, request_data=record)
             id = response.json().get("id")
             self.logger.info(f"{object_type} created with id: {id}")
