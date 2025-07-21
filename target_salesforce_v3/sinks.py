@@ -1008,6 +1008,7 @@ class FallbackSink(SalesforceV3Sink):
             object_id = record.pop("Id") or record.pop("id")
             url = "/".join([endpoint, object_id])
             try:
+                self.logger.info(f"Trying to update {object_type} with id: {object_id}")
                 response = self.request_api("PATCH", endpoint=url, request_data=record)
                 if response.status_code == 204:
                     self.logger.info(f"{object_type} updated with id: {object_id}")
@@ -1032,8 +1033,8 @@ class FallbackSink(SalesforceV3Sink):
                             self.logger.info("Skipping creating new account, because only_upsert_accounts is true.")
                             return "missing", False, {"existing": True}
                         
-                    
                     url = "/".join([endpoint, id_field, record.get(id_field)])
+                    self.logger.info(f"Trying to update {object_type} using id_field {id_field} and url {url}")
                     response = self.request_api("PATCH", endpoint=url, request_data={k: record[k] for k in set(list(record.keys())) - set([id_field])})
                     if response.status_code == 300:
                         raise Exception(f"Multiple records found for {id_field} = {record.get(id_field)}, response: {response.json()}")
@@ -1064,6 +1065,7 @@ class FallbackSink(SalesforceV3Sink):
                     self.logger.info("No existing ContentDocumentId found, creating new file.")
                     pass
 
+            self.logger.info(f"Trying to create {object_type} with record: {record}")
             response = self.request_api("POST", endpoint=endpoint, request_data=record)
             id = response.json().get("id")
             self.logger.info(f"{object_type} created with id: {id}")
@@ -1091,6 +1093,8 @@ class FallbackSink(SalesforceV3Sink):
                 self.logger.info(f"{object_type} created with id: {id}")
                 return id, True, state_updates
 
+            if patch_errors:
+                self.logger.error(f"Error(s) while updating record: {patch_errors}")
             if "duplicate" in str(e) and patch_errors:
                 return None, False, {"errors": f"failed during updating record, patch errors by externalId field {patch_errors}"}
             
