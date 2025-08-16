@@ -45,6 +45,52 @@ target is available by running:
 target-salesforce-v3 --about
 ```
 
+#### Key Configuration Options
+
+**`only_upsert_empty_fields`** (boolean or array, optional)
+
+- **Description**: When enabled, this option ensures that only fields with empty/null values in Salesforce will be updated during upsert operations. This prevents overwriting existing data with empty values.
+- **Usage**:
+  - **Boolean**: Set to `true` to apply this behavior to all fields
+  - **Array**: Provide a list of specific unified field names that should only be updated when they are empty in Salesforce
+- **Supported field types** (when using array):
+  - **Simple fields**: Direct field mappings like `"email"`, `"first_name"`, `"last_name"`
+  - **Complex fields**: Special handling for `"addresses"` and `"phone_numbers"` which map to multiple Salesforce fields
+  - **Custom fields**: Salesforce custom fields like `"Investor__c"`
+
+**Example configurations:**
+
+**Boolean usage (apply to all fields):**
+
+```json
+{
+  "only_upsert_empty_fields": true
+}
+```
+
+**Array usage (apply to specific fields):**
+
+```json
+{
+  "only_upsert_empty_fields": [
+    "email",
+    "first_name",
+    "last_name",
+    "Investor__c",
+    "addresses",
+    "phone_numbers"
+  ]
+}
+```
+
+**How it works:**
+
+- When set to `true`, all fields will only be updated if they are currently empty in Salesforce
+- When using an array, only the specified fields will be protected from overwriting existing data
+- When `"addresses"` is included, it excludes all address-related Salesforce fields from updates if they already have values
+- When `"phone_numbers"` is included, it excludes all phone-related Salesforce fields from updates if they already have values
+- For simple fields, it uses the unified-to-Salesforce field mapping to determine which Salesforce field to exclude
+
 ### Configure using environment variables
 
 This Singer target will automatically import any environment variables within the working directory's
@@ -84,7 +130,7 @@ poetry install
 ### Create and Run Tests
 
 Create tests within the `tests` subfolder and
-  then run:
+then run:
 
 ```bash
 poetry run pytest

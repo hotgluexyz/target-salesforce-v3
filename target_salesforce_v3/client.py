@@ -473,7 +473,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         self.logger.info(f"Field permission for {field_name} updated for permission set {permission_set_id}, response: {response.text}")
     
 
-    def map_only_empty_fields(self, mapping, sobject_name, lookup_filter):
+    def map_only_empty_fields(self, mapping, sobject_name, lookup_filter, fields_to_exclude=None):
         fields = [field for field in mapping.keys()]
         if "Id" not in fields:
             fields.append("Id")   
@@ -484,7 +484,13 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         if data:
             existing_record = data[0]
             mapping.update({"Id": existing_record["Id"]})
-            mapping = {k:v for k,v in mapping.items() if not existing_record.get(k) or k == "Id"}
+            if fields_to_exclude:
+                mapping = {k:v for k,v in mapping.items() if 
+                          k == "Id" or  # Always include Id
+                          k not in fields_to_exclude or  # Include if not in exclusion list
+                          not existing_record.get(k)}  # Include if existing value is empty
+            else:
+                mapping = {k:v for k,v in mapping.items() if not existing_record.get(k) or k == "Id"}
         return mapping
 
     def get_lookup_filter(self, lookup_values, method):
