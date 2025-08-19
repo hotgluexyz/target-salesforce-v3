@@ -509,7 +509,7 @@ class ContactsSink(SalesforceV3Sink):
                 self.logger.info(f"CampaignMember {action}ed with id: {id}")
             except Exception as e:
                 self.logger.exception(f"Error encountered while {action}ing CampaignMember")
-                self.logger.exception(f"error: {e}, response: {response.text}, request body: {response.request.body}")
+                self.logger.exception(f"error: {e}")
                 raise e
 
 
