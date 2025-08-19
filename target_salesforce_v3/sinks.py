@@ -391,7 +391,9 @@ class ContactsSink(SalesforceV3Sink):
         lists = [] if lists is None else lists
 
         def escape_sql_quotes(s: str) -> str:
-            return s.replace("'", r"\'")
+            if s is None:
+                return s
+            return s.replace('"', r'\"').replace("'", r"\'")
 
         # Query templates
         campaign_by_id_query = lambda cid: (
@@ -441,15 +443,14 @@ class ContactsSink(SalesforceV3Sink):
             if not name:
                 continue
 
-            safe_name = escape_sql_quotes(name)
             record = self.query_sobject(
-                query=campaign_by_name_query(safe_name),
+                query=campaign_by_name_query(name),
                 fields=["Id"]
             )
             if record:
                 cid = record[0]["Id"]
             else:
-                self.logger.info(f"No Campaign found with Name='{safe_name}'. Creating new Campaign.")
+                self.logger.info(f"No Campaign found with Name='{name}'. Creating new Campaign.")
                 response = self.request_api(
                     "POST",
                     endpoint="sobjects/Campaign",
@@ -509,7 +510,7 @@ class ContactsSink(SalesforceV3Sink):
                 self.logger.info(f"CampaignMember {action}ed with id: {id}")
             except Exception as e:
                 self.logger.exception(f"Error encountered while {action}ing CampaignMember")
-                self.logger.exception(f"error: {e}")
+                self.logger.exception(f"error: {e}, request body: {mapping}")
                 raise e
 
 
