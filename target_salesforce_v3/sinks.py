@@ -289,7 +289,7 @@ class ContactsSink(SalesforceV3Sink):
 
                     return id, True, state_updates
                 except Exception as e:
-                    self.logger.exception(f"Could not PATCH to {url}: {e}")
+                    self.logger.exception(f"An error occured while upserting contact: {e}")
                     raise e
         if record:
             try:
