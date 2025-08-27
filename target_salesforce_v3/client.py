@@ -355,8 +355,8 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
                 # If there's a custom field in the record that is not in Salesforce
                 # create it
                 self.add_custom_field(cf['name'], label = cf.get('label'))
-
                 needs_to_refresh_fields_cache = True
+        
         if needs_to_refresh_fields_cache:
             self.logger.info("Refreshing fields cache")
             self.sf_fields_description.cache_clear()
