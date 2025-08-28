@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import time
 import re
+import functools
 
 import backoff
 import requests
@@ -147,7 +149,10 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
 
     def request_api(self, http_method, endpoint=None, params=None, request_data=None, headers=None):
         """Request records from REST endpoint(s), returning response records."""
+        start_time = time.time()
         resp = self._request(http_method, endpoint, params, request_data, headers)
+        end_time = time.time()
+        self.logger.info(f"\t\tRequest time: {end_time - start_time} seconds. {http_method} {endpoint}")
         self.check_salesforce_limits(resp)
         return resp
 
@@ -246,6 +251,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             sobject = self.request_api("GET", f"sobjects/{object_type}/describe/")
         return [f for f in sobject.json()["fields"]]
 
+    @functools.cache
     def sf_fields_description(self, object_type=None):
         fld = self.sf_fields(object_type=object_type)
         fields = {}
@@ -340,6 +346,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         fields_dict = self.sf_fields_description()
         salesforce_custom_fields = fields_dict['custom']
 
+        needs_to_refresh_fields_cache = False
         for cf in record:
             cf_name = cf['name']
             if not cf_name.endswith('__c'):
@@ -348,7 +355,11 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
                 # If there's a custom field in the record that is not in Salesforce
                 # create it
                 self.add_custom_field(cf['name'], label = cf.get('label'))
-
+                needs_to_refresh_fields_cache = True
+        
+        if needs_to_refresh_fields_cache:
+            self.logger.info("Refreshing fields cache")
+            self.sf_fields_description.cache_clear()
         return None
 
     def add_custom_field(self,cf,label=None):
