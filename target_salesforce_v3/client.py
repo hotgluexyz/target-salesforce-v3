@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import time
 import re
+import functools
 
 import backoff
 import requests
@@ -59,6 +61,10 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         if "user_agent" in self.config:
             headers["User-Agent"] = self.config.get("user_agent")
         return headers
+    
+    @property
+    def lookup_fields_dict(self):
+        return self.config.get("lookup_fields") or {}
 
     def get_fields_for_object(self, object_type):
         """Check if Salesforce has an object type and fetches its fields."""
@@ -149,7 +155,10 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
 
     def request_api(self, http_method, endpoint=None, params=None, request_data=None, headers=None):
         """Request records from REST endpoint(s), returning response records."""
+        start_time = time.time()
         resp = self._request(http_method, endpoint, params, request_data, headers)
+        end_time = time.time()
+        self.logger.info(f"Request time: {end_time - start_time} seconds. {http_method} {endpoint} {params}")
         self.check_salesforce_limits(resp)
         return resp
 
@@ -268,6 +277,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             sobject = self.request_api("GET", f"sobjects/{object_type}/describe/")
         return [f for f in sobject.json()["fields"]]
 
+    @functools.cache
     def sf_fields_description(self, object_type=None):
         fld = self.sf_fields(object_type=object_type)
         fields = {}
@@ -364,6 +374,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         fields_dict = self.sf_fields_description()
         salesforce_custom_fields = fields_dict['custom']
 
+        needs_to_refresh_fields_cache = False
         for cf in record:
             cf_name = cf['name']
             if cf_name in exclude_fields:
@@ -376,7 +387,16 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
                 # create it
                 self.add_custom_field(cf['name'], label = cf.get('label'))
                 self.new_custom_fields.append(cf_name)
+                needs_to_refresh_fields_cache = True
+        if needs_to_refresh_fields_cache:
+            self.logger.info("Refreshing fields cache")
+            self.sf_fields_description.cache_clear()
         return None
+
+    def process_custom_field_value (self, value):
+        if value.lower() in ["true", "false"]:
+            return True if value.lower() == "true" else False
+        return value
 
     def add_custom_field(self,cf,label=None):
         if not label:
@@ -464,14 +484,28 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         self.logger.info(f"Field permission for {field_name} updated for permission set {permission_set_id}, response: {response.text}")
     
 
-    def map_only_empty_fields(self, mapping, sobject_name, lookup_field):       
-        fields = ",".join([field for field in mapping.keys()])
+    def map_only_empty_fields(self, mapping, sobject_name, lookup_filter):
+        fields = [field for field in mapping.keys()]
+        if "Id" not in fields:
+            fields.append("Id")   
+        fields = ",".join(fields)
         data = self.query_sobject(
-            query = f"SELECT {fields} from {sobject_name} WHERE {lookup_field}",
+            query = f"SELECT {fields} from {sobject_name} WHERE {lookup_filter}",
         )
         if data:
-            mapping = {k:v for k,v in mapping.items() if not data[0].get(k) or k == "Id"}
+            existing_record = data[0]
+            mapping.update({"Id": existing_record["Id"]})
+            mapping = {k:v for k,v in mapping.items() if not existing_record.get(k) or k == "Id"}
         return mapping
+
+    def get_lookup_filter(self, lookup_values, method):
+        conditions = []
+        if lookup_values:
+            query_operator = "AND" if method == "all" else "OR"
+            for field, value in lookup_values.items():
+                conditions.append(f"{field} = '{value}'")
+
+            return f" {query_operator} ".join(conditions)
     
     def read_json_file(self, filename):
         # read file
