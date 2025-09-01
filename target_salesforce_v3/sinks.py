@@ -13,6 +13,7 @@ from datetime import datetime
 from singer_sdk.exceptions import FatalAPIError, RetriableAPIError
 
 from target_salesforce_v3.exceptions import InvalidDealRecord, MissingObjectInSalesforceError
+from target_salesforce_v3.utils import flatten_string_list
 
 
 
@@ -41,6 +42,56 @@ class ContactsSink(SalesforceV3Sink):
     @cached_property
     def campaign_member_fields(self):
         return self.get_fields_for_object("CampaignMember")
+
+    @property
+    def unified_to_sf_mapping(self):
+        """
+        This property returns the mapping of the unified schema to the Salesforce schema.
+        """
+        return  {
+                    "first_name": "FirstName",
+                    "last_name": "LastName", 
+                    "email": "Email",
+                    "title": "Title",
+                    "description": "Description",
+                    "lead_source": "LeadSource",
+                    "salutation": "Salutation",
+                    "birthdate": "Birthdate",
+                    "owner_id": "OwnerId",
+                    "unsubscribed": "HasOptedOutOfEmail",
+                    "subscribe_status": "HasOptedOutOfEmail",
+                    "number_of_employees": "NumberOfEmployees",
+                    "website": "Website",
+                    "industry": "Industry",
+                    "company_name": "Company",
+                    "rating": "Rating",
+                    "annual_revenue": "AnnualRevenue",
+                    "department": "Department",
+                    "tags": "Topics",
+                    "campaigns": "Campaigns",
+                    "lists": "Campaigns",
+                    "addresses": ["MailingStreet", "MailingCity", "MailingState", "MailingPostalCode", "MailingCountry", "OtherStreet", "OtherCity", "OtherState", "OtherPostalCode", "OtherCountry"],
+                    "phone_numbers": ["Phone", "OtherPhone", "MobilePhone", "HomePhone"]
+        }
+
+
+    def _get_fields_to_preserve(self, record):
+        """
+        Returns the SF fields to preserve given the only_upsert_empty_fields flag
+        """
+
+        flag_value = self.config.get("only_upsert_empty_fields", False)
+        
+        if isinstance(flag_value, bool) and flag_value:
+            return [k for k in record.keys() if k != "Id" and record[k]]
+
+        # If list of unified fields, only preserve those fields when non-empty
+        if isinstance(flag_value, list):
+            sf_field_names = [self.unified_to_sf_mapping.get(field, field) for field in flag_value]
+            sf_field_names = flatten_string_list(sf_field_names)
+            return [k for k in sf_field_names if record.get(k)]
+
+        return []
 
     def preprocess_record(self, record: dict, context: dict):
         # 1. Map and process record
