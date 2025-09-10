@@ -15,7 +15,7 @@ python = "<3.11,>=3.7.1"
 target-hotglue = "^0.0.3"
 requests = "^2.31.0"
 backports-cached-property = "^1.0.2"
-hotglue-models-crm = { git = "https://gitlab.com/hotglue/hotglue-models-crm.git", branch = "master"}
+hotglue-models-crm = { git = "https://gitlab.com/hotglue/hotglue-models-crm.git", tag = "v0.0.9"}
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.4.0"
