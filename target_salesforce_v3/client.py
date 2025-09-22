@@ -483,6 +483,18 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         response = self.request_api("POST", endpoint="composite", request_data=payload, headers={"Content-Type": "application/json"})
         self.logger.info(f"Field permission for {field_name} updated for permission set {permission_set_id}, response: {response.text}")
     
+    def _get_fields_to_preserve(self, record):
+        """
+        Returns the SF fields to preserve given the only_upsert_empty_fields flag
+        """
+
+        flag_value = self.config.get("only_upsert_empty_fields", False)
+        
+        # Preserve all non-empty fields if flag = True
+        if isinstance(flag_value, bool) and flag_value:
+            return [k for k in record.keys() if k != "Id" and record[k]]
+
+        return []
 
     def map_only_empty_fields(self, mapping, sobject_name, lookup_filter):
         fields = [field for field in mapping.keys()]
@@ -494,8 +506,14 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         )
         if data:
             existing_record = data[0]
+            
+            fields_to_preserve = self._get_fields_to_preserve(existing_record)
+
             mapping.update({"Id": existing_record["Id"]})
-            mapping = {k:v for k,v in mapping.items() if not existing_record.get(k) or k == "Id"}
+            for k,v in mapping.items():
+                if k in fields_to_preserve:
+                    mapping[k] = existing_record[k]
+
         return mapping
 
     def get_lookup_filter(self, lookup_values, method):
