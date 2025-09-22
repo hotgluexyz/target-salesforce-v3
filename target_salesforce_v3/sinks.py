@@ -489,7 +489,7 @@ class CompanySink(SalesforceV3Sink):
     endpoint = "sobjects/Account"
     unified_schema = Company
     name = Company.Stream.name
-    available_names = ["company", "companies"]
+    available_names = ["company", "companies", "accounts"]
 
     def preprocess_record(self, record, context):
         if isinstance(record.get("custom_fields"), str):
