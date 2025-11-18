@@ -72,7 +72,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         """Validate HTTP response."""
         if response.status_code in [429] or 500 <= response.status_code < 600:
             msg = self.response_error_message(response)
-            raise RetriableAPIError(msg, response)
+            raise RetriableAPIError(msg)
         elif 400 <= response.status_code < 500:
             try:
                 msg = response.text
@@ -90,6 +90,9 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         return (
             f"{response.status_code} {error_type} Error: "
             f"{response.reason} for path: {self.endpoint}"
+            f"Response: {response.text}"
+            f"Request URL: {response.request.url}"
+            f"Request data: {response.request.body}"
         )
 
     def check_salesforce_limits(self, response):
@@ -116,8 +119,8 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
     @backoff.on_exception(
         backoff.expo,
         (RetriableAPIError, requests.exceptions.ReadTimeout),
-        max_tries=5,
-        factor=2,
+        max_tries=8,
+        factor=3,
     )
     def _request(
         self, http_method, endpoint, params=None, request_data=None, headers=None
