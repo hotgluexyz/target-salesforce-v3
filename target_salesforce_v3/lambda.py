@@ -1,5 +1,6 @@
 import importlib
 from logging import Logger
+from typing import Optional
 
 def real_time_handler(
     config: dict,
@@ -7,6 +8,7 @@ def real_time_handler(
     schema_line: str,
     record_line: str,
     logger: Logger,
+    input_path: Optional[str] = None,
 ):
     try:
         mod = importlib.import_module("target_hotglue.lambda")
@@ -22,5 +24,6 @@ def real_time_handler(
         schema_line,
         record_line,
         logger,
+        input_path,
         cli_cmd="target-salesforce-v3",
     )

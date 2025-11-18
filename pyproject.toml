@@ -12,7 +12,7 @@ license = "Apache-2.0"
 
 [tool.poetry.dependencies]
 python = "<3.11,>=3.7.1"
-target-hotglue = "^0.0.16"
+target-hotglue = { git = "https://gitlab.com/hotglue/target-hotglue-sdk.git", rev = "feat/singer-file" }
 requests = "^2.31.0"
 backports-cached-property = "^1.0.2"
 hotglue-models-crm = { git = "https://gitlab.com/hotglue/hotglue-models-crm.git", tag = "v0.0.9"}
