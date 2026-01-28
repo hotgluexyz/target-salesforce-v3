@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import urllib
+
+from hotglue_etl_exceptions import InvalidPayloadError
 from target_salesforce_v3.client import SalesforceV3Sink
 
 from hotglue_models_crm.crm import Contact, Company, Deal, Campaign,Activity
@@ -10,7 +12,7 @@ from backports.cached_property import cached_property
 
 from dateutil.parser import parse
 from datetime import datetime
-from singer_sdk.exceptions import FatalAPIError, RetriableAPIError
+from hotglue_singer_sdk.exceptions import FatalAPIError, RetriableAPIError
 
 from target_salesforce_v3.exceptions import InvalidDealRecord, MissingObjectInSalesforceError
 
@@ -259,10 +261,7 @@ class ContactsSink(SalesforceV3Sink):
 
     def validate_response(self, response):
         """Validate HTTP response."""
-        if response.status_code in [429] or 500 <= response.status_code < 600:
-            msg = self.response_error_message(response)
-            raise RetriableAPIError(msg, response)
-        elif 400 <= response.status_code < 500:
+        if 400 <= response.status_code < 500 and response.status_code != 429:
             if "Already a campaign member." in response.text:
                 self.logger.info("INFO: This Contact/Lead is already a Campaign Member.")
             elif '[{"errorCode":"NOT_FOUND","message":"The requested resource does not exist"}]' in response.text:
@@ -271,11 +270,9 @@ class ContactsSink(SalesforceV3Sink):
                 self.update_field_permissions(profile = 'System Administrator', sobject_type = self.contact_type, field_name=f"{self.contact_type}.HasOptedOutOfEmail")
                 raise RetriableAPIError(f"DEBUG: HasOptedOutOfEmail column was not found, updating 'Field-Leve Security'\n'System Administrator'[x]")
             else:
-                try:
-                    msg = response.text
-                except:
-                    msg = self.response_error_message(response)
-                raise FatalAPIError(msg)
+                super().validate_response(response)
+        else:
+            super().validate_response(response)
 
     def assign_to_topic(self,contact_id,topics:list) -> None:
         """
@@ -862,100 +859,93 @@ class FallbackSink(SalesforceV3Sink):
         raise MissingObjectInSalesforceError(f"Object type {object_type} not found in Salesforce.")
 
     def preprocess_record(self, record, context):
+        # Check if object exists in Salesforce
+        object_type = None
+        req = self.request_api("GET", "sobjects")
+        objects_list = req.json().get("sobjects", [])
+        for object in objects_list:
+            is_name = object["name"] == self.stream_name
+            is_label = object["label"] == self.stream_name
+            is_label_plural = object["labelPlural"] == self.stream_name
+            if is_name or is_label or is_label_plural:
+                self.logger.info(f"Processing record for type {self.stream_name}. Using fallback sink.")
+                object_type = object["name"]
+                break
+
+        if not object_type:
+            raise InvalidPayloadError(f"Record type {self.stream_name} doesn't exist on Salesforce.")
+
         try:
-            # Check if object exists in Salesforce
-            object_type = None
-            req = self.request_api("GET", "sobjects")
-            objects_list = req.json().get("sobjects", [])
-            for object in objects_list:
-                is_name = object["name"] == self.stream_name
-                is_label = object["label"] == self.stream_name
-                is_label_plural = object["labelPlural"] == self.stream_name
-                if is_name or is_label or is_label_plural:
-                    self.logger.info(f"Processing record for type {self.stream_name}. Using fallback sink.")
-                    object_type = object["name"]
+            fields = self.get_fields_for_object(object_type)
+        except MissingObjectInSalesforceError:
+            self.logger.info("Skipping record, because it was not found on Salesforce.")
+            return {}
+        
+        # add field to link attachments
+        if self.name == "ContentVersion":
+            fields.update({"LinkedEntityId": {"createable": True}})
+        
+        # keep only available fields and that are creatable or updatable
+        # NOTE: we need to keep relations (__r, xId)
+        record = {k:v for k,v in record.items() if k.endswith("__r") or fields.get(k+"Id") or (fields.get(k) and (fields[k]["createable"] or fields[k]["updateable"] or k.lower() in ["id", "externalid"]))}
+        
+        # set falsy date fields to None so they are nullified properly in Salesforce
+        record = {k: None if (not v and fields.get(k, {}).get("type") in ["date", "datetime"]) else v for k,v in record.items()}
+
+        # add object_type
+        record["object_type"] = object_type
+
+        # If lookup_fields dict exist in config use it to check if the record exists in Salesforce
+        object_lookup_field = self.lookup_fields_dict.get(object_type)
+        # check if the lookup field exists for the object
+        object_lookup_field = object_lookup_field if object_lookup_field in fields else None
+        # check if the record has a value for the lookup field
+        lookup_value = record.get(object_lookup_field)
+
+        req = None
+        # lookup for record with field from config
+        if object_lookup_field and lookup_value:
+            query_fields = ",".join([field for field in fields.keys() if field in record] + ["Id"])
+            query = f"SELECT {query_fields} FROM {object_type} WHERE {object_lookup_field} = '{lookup_value}'"
+            req = self.request_api("GET", "queryAll", params={"q": query})
+            req = req.json().get("records")
+        # lookup for record with email fields
+        elif self.config.get("lookup_by_email", True) and self.name not in self.not_searchable_by_mail:
+            # Try to find object instance using email
+            email_fields = ["Email", "npe01__AlternateEmail__c", "npe01__HomeEmail__c", "npe01__Preferred_Email__c", "npe01__WorkEmail__c", "PersonEmail", "Other_Email__c"]
+            email_values = [record.get(email_field) for email_field in email_fields if record.get(email_field)]
+
+            for email_to_check in email_values:
+                # Escape special characters on email
+                for char in ["+", "-"]:
+                    if char in email_to_check:
+                        email_to_check = email_to_check.replace(char, f"\{char}")
+
+                query = "".join(["FIND {", email_to_check, "} ", f" IN ALL FIELDS RETURNING {object_type}(id)"])
+                req = self.request_api("GET", "search/", params={"q": query})
+                req = req.json().get("searchRecords")
+                if req:
                     break
 
-            if not object_type:
-                self.logger.info(f"Record doesn't exist on Salesforce {self.stream_name} was not found on Salesforce.")
-                return {}
+        # if record already exists add its Id for patching           
+        if req:
+            existing_record = req[0]
+            # if flag only_upsert_empty_fields is true, only send fields with currently empty values
+            if self.config.get("only_upsert_empty_fields"):
+                record = {k:v for k,v in record.items() if not existing_record.get(k)}
+            record["Id"] = existing_record["Id"]
 
-            try:
-                fields = self.get_fields_for_object(object_type)
-            except MissingObjectInSalesforceError:
-                self.logger.info("Skipping record, because it was not found on Salesforce.")
-                return {}
-            
-            # add field to link attachments
-            if self.name == "ContentVersion":
-                fields.update({"LinkedEntityId": {"createable": True}})
-            
-            # keep only available fields and that are creatable or updatable
-            # NOTE: we need to keep relations (__r, xId)
-            record = {k:v for k,v in record.items() if k.endswith("__r") or fields.get(k+"Id") or (fields.get(k) and (fields[k]["createable"] or fields[k]["updateable"] or k.lower() in ["id", "externalid"]))}
-            
-            # set falsy date fields to None so they are nullified properly in Salesforce
-            record = {k: None if (not v and fields.get(k, {}).get("type") in ["date", "datetime"]) else v for k,v in record.items()}
+        # convert any datetimes to string to avoid json encoding errors
+        for key in record:
+            if isinstance(record.get(key), datetime):
+                record[key] = record[key].isoformat()
 
-            # add object_type
-            record["object_type"] = object_type
-
-            # If lookup_fields dict exist in config use it to check if the record exists in Salesforce
-            object_lookup_field = self.lookup_fields_dict.get(object_type)
-            # check if the lookup field exists for the object
-            object_lookup_field = object_lookup_field if object_lookup_field in fields else None
-            # check if the record has a value for the lookup field
-            lookup_value = record.get(object_lookup_field)
-
-            req = None
-            # lookup for record with field from config
-            if object_lookup_field and lookup_value:
-                query_fields = ",".join([field for field in fields.keys() if field in record] + ["Id"])
-                query = f"SELECT {query_fields} FROM {object_type} WHERE {object_lookup_field} = '{lookup_value}'"
-                req = self.request_api("GET", "queryAll", params={"q": query})
-                req = req.json().get("records")
-            # lookup for record with email fields
-            elif self.config.get("lookup_by_email", True) and self.name not in self.not_searchable_by_mail:
-                # Try to find object instance using email
-                email_fields = ["Email", "npe01__AlternateEmail__c", "npe01__HomeEmail__c", "npe01__Preferred_Email__c", "npe01__WorkEmail__c", "PersonEmail", "Other_Email__c"]
-                email_values = [record.get(email_field) for email_field in email_fields if record.get(email_field)]
-
-                for email_to_check in email_values:
-                    # Escape special characters on email
-                    for char in ["+", "-"]:
-                        if char in email_to_check:
-                            email_to_check = email_to_check.replace(char, f"\{char}")
-
-                    query = "".join(["FIND {", email_to_check, "} ", f" IN ALL FIELDS RETURNING {object_type}(id)"])
-                    req = self.request_api("GET", "search/", params={"q": query})
-                    req = req.json().get("searchRecords")
-                    if req:
-                        break
-
-            # if record already exists add its Id for patching           
-            if req:
-                existing_record = req[0]
-                # if flag only_upsert_empty_fields is true, only send fields with currently empty values
-                if self.config.get("only_upsert_empty_fields"):
-                    record = {k:v for k,v in record.items() if not existing_record.get(k)}
-                record["Id"] = existing_record["Id"]
-
-            # convert any datetimes to string to avoid json encoding errors
-            for key in record:
-                if isinstance(record.get(key), datetime):
-                    record[key] = record[key].isoformat()
-
-            # clean any read only fields
-            for field in self._target.read_only_fields.get(self.stream_name, []):
-                record.pop(field, None)
-            return record
-        except Exception as exc:
-            return {"error": repr(exc)}
+        # clean any read only fields
+        for field in self._target.read_only_fields.get(self.stream_name, []):
+            record.pop(field, None)
+        return record
 
     def upsert_record(self, record, context):
-        if record.get("error"):
-            return None, False, {"error": record.get("error")}
-
         if record == {} or record is None:
             return None, False, {}
 

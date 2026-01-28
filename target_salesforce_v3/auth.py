@@ -1,10 +1,11 @@
 import json
 from datetime import datetime
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping
 from types import MappingProxyType
 import logging
 
 import requests
+from hotglue_etl_exceptions import InvalidCredentialsError
 
 class SalesforceV3Authenticator:
     """API Authenticator for OAuth 2.0 flows."""
@@ -12,22 +13,18 @@ class SalesforceV3Authenticator:
     def __init__(
         self,
         target,
-        auth_endpoint: Optional[str] = None,
+        auth_endpoint: str,
     ) -> None:
-        """Init authenticator.
+        """Initialize authenticator.
 
         Args:
-            stream: A stream for a RESTful endpoint.
+            target: The target instance for Salesforce API authentication.
+            auth_endpoint: Authorization endpoint URL.
         """
-        self.target_name: str = target.name
         self._config: Dict[str, Any] = dict(target.config)
-        self._auth_headers: Dict[str, Any] = {}
-        self._auth_params: Dict[str, Any] = {}
         self.logger: logging.Logger = target.logger
         self._auth_endpoint = auth_endpoint
         self._target = target
-        self.update_access_token()
-        self.instance_url = self._target.config["instance_url"]
 
     @property
     def config(self) -> Mapping[str, Any]:
@@ -121,6 +118,13 @@ class SalesforceV3Authenticator:
             headers=headers,
             data=auth_request_payload
         )
+        error_codes = ["invalid_grant", "invalid_client"]
+        if token_response.status_code == 400 and any(error_code in token_response.text for error_code in error_codes):
+            try:
+                msg = token_response.json()["error_description"]
+            except:
+                msg = token_response.text
+            raise InvalidCredentialsError(msg)
         try:
             token_response.raise_for_status()
             self.logger.info("OAuth authorization attempt was successful.")

@@ -73,6 +73,14 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             msg = self.response_error_message(response)
             raise RetriableAPIError(msg)
         elif 400 <= response.status_code < 500:
+            if response.status_code == 400 and "message" in response.text:
+                try:
+                    error = response.json()[0]
+                    msg = f"{error['errorCode']}: {error['message']}"
+                except:
+                    msg = response.text
+                self.logger.error(self.response_error_message(response))
+                raise InvalidPayloadError(msg)
             try:
                 msg = response.text
             except:
@@ -476,73 +484,3 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             if not mapped_country:
                 self.logger.info(f"Country '{country}' is not a valid value, not sending country in the payload.")
             return mapped_country
-
-    def process_record(self, record: dict, context: dict) -> None:
-        """Process the record."""
-        if not self.latest_state:
-            self.init_state()
-
-        hash = self.build_record_hash(record)
-
-        existing_state =  self.get_existing_state(hash)
-
-        if existing_state:
-            return self.update_state(existing_state, is_duplicate=True)
-
-        state = {"hash": hash}
-
-        id = None
-        success = False
-        state_updates = dict()
-
-        external_id = record.pop("externalId", None)
-
-        try:
-            id, success, state_updates = self.upsert_record(record, context)
-        except Exception as e:
-            self.logger.exception(f"Upsert record error {str(e)}")
-            state_updates['error'] = str(e)
-
-        if success:
-            self.logger.info(f"{self.name} processed id: {id}")
-
-        state["success"] = success
-
-        if id:
-            state["id"] = id
-
-        if external_id:
-            state["externalId"] = external_id
-
-        # rewriting function to be able to pass is_duplicate to the update_state function
-        is_duplicate = False
-        if state_updates.pop("existing", False):
-            is_duplicate = True
-        #--------------------------------
-
-        if state_updates and isinstance(state_updates, dict):
-            state = dict(state, **state_updates)
-
-        self.update_state(state, is_duplicate=is_duplicate)
-    
-
-    def update_state(self, state: dict, is_duplicate=False):
-        # overriding so existing is not marked as success or fail
-        if is_duplicate:
-            self.logger.info(f"Record of type {self.name} already exists with id: {state.get('id')}")
-            self.latest_state["summary"][self.name]["existing"] += 1
-
-        elif not state.get("success", False):
-            self.latest_state["summary"][self.name]["fail"] += 1
-        elif state.get("is_updated", False):
-            self.latest_state["summary"][self.name]["updated"] += 1
-            state.pop("is_updated", None)
-        else:
-            self.latest_state["summary"][self.name]["success"] += 1
-
-        self.latest_state["bookmarks"][self.name].append(state)
-
-        # If "authenticator" exists and if it's an instance of "Authenticator" class,
-        # update "self.latest_state" with the the "authenticator" state
-        if self.authenticator and isinstance(self.authenticator, Authenticator):
-            self.latest_state.update(self.authenticator.state)
