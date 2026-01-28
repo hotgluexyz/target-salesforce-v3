@@ -9,16 +9,15 @@ import functools
 import backoff
 import requests
 
-from backports.cached_property import cached_property
 from datetime import datetime
 
-from singer_sdk.exceptions import FatalAPIError, RetriableAPIError
-from singer_sdk.sinks import RecordSink
+from hotglue_singer_sdk.exceptions import FatalAPIError, RetriableAPIError
+from hotglue_singer_sdk.sinks import RecordSink
+from hotglue_etl_exceptions import InvalidPayloadError
 
 from target_salesforce_v3.auth import SalesforceV3Authenticator
 
-from target_hotglue.sinks import HotglueSink
-from target_hotglue.auth import Authenticator
+from hotglue_singer_sdk.target_sdk.client import HotglueSink
 import os
 import json
 
