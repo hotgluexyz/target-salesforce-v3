@@ -5,7 +5,7 @@ from __future__ import annotations
 import typing as t
 
 import pytest
-from singer_sdk.testing import get_target_test_class
+from hotglue_singer_sdk.testing import get_target_test_class
 
 from target_salesforce_v3.target import TargetSalesforceV3
 

@@ -1,0 +1,19 @@
+{
+  "client_id": "your_client_id_here",
+  "client_secret": "your_client_secret_here",
+  "redirect_uri": "https://your-redirect-uri.com/callback",
+  "refresh_token": "your_refresh_token_here",
+  "instance_url": "https://yourinstance.salesforce.com",
+  "api_version": "55.0",
+  "user_agent": "target-salesforce-v3/0.0.1",
+  "quota_percent_total": 80,
+  "create_custom_fields": false,
+  "only_upsert_empty_fields": false,
+  "lookup_by_email": true,
+  "only_upsert_accounts": false,
+  "lookup_fields": {
+    "CustomObject__c": "ExternalId__c"
+  },
+  "base_uri": "https://login.salesforce.com",
+  "is_sandbox": false
+}

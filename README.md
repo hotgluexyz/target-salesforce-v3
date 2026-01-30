@@ -28,22 +28,16 @@ pipx install git+https://github.com/ORG_NAME/target-salesforce-v3.git@main
 
 ### Accepted Config Options
 
-<!--
-Developer TODO: Provide a list of config options accepted by the target.
-
-This section can be created by copy-pasting the CLI output from:
-
-```
-target-salesforce-v3 --about --format=markdown
-```
--->
-
 A full list of supported settings and capabilities for this
 target is available by running:
 
 ```bash
 target-salesforce-v3 --about
 ```
+
+For detailed documentation on all configuration options, including descriptions, types, defaults, and examples, see the [templates/README.md](templates/README.md) file. 
+
+A sample configuration file is also available at [templates/config.json](templates/config.json).
 
 ### Configure using environment variables
 

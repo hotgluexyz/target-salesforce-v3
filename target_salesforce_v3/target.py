@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from singer_sdk import typing as th
-from target_hotglue.target import TargetHotglue
+from hotglue_singer_sdk.target_sdk.target import TargetHotglue
+from hotglue_singer_sdk.helpers.capabilities import AlertingLevel
 
 from target_salesforce_v3.sinks import (
     FallbackSink,
@@ -32,6 +32,7 @@ class TargetSalesforceV3(TargetHotglue):
     """Sample target for Api."""
 
     name = "target-salesforce-v3"
+    alerting_level = AlertingLevel.WARNING
     MAX_PARALLELISM = 10
     SINK_TYPES = SINK_TYPES
     read_only_fields = {}
