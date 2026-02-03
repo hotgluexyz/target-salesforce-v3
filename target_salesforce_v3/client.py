@@ -389,6 +389,8 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         if not self.config.get('create_custom_fields', False):
             return None
 
+        new_custom_fields = []
+
         # Checking if the custom fields already exist in
         fields_dict = self.sf_fields_description()
         salesforce_custom_fields = fields_dict['custom']
@@ -405,16 +407,16 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
                 # If there's a custom field in the record that is not in Salesforce
                 # create it
                 self.add_custom_field(cf['name'], label = cf.get('label'))
-                self.new_custom_fields.append(cf_name)
+                new_custom_fields.append(cf_name)
                 needs_to_refresh_fields_cache = True
         
         if needs_to_refresh_fields_cache:
             self.logger.info("Refreshing fields cache")
             self.sf_fields_description.cache_clear()
-        return None
+        return new_custom_fields
 
     def process_custom_field_value (self, value):
-        if value.lower() in ["true", "false"]:
+        if isinstance(value, str) and value.lower() in ["true", "false"]:
             return True if value.lower() == "true" else False
         return value
 

@@ -26,11 +26,23 @@ class ContactsSink(SalesforceV3Sink):
     topics = None
     contact_type = "Contact"
     available_names = ["contacts", "customers"]
-    new_custom_fields = []
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.new_custom_fields = []
 
     @cached_property
+    def _contact_fields(self):
+        return self.get_fields_for_object("Contact")
+
+    @cached_property
+    def _lead_fields(self):
+        return self.get_fields_for_object("Lead")
+
+    @property
     def _fields(self):
-        return self.get_fields_for_object(self.contact_type)
+        """Fields for the current contact_type (Contact or Lead). Not cached so mixed records use the correct object."""
+        return self._lead_fields if self.contact_type == "Lead" else self._contact_fields
 
     @cached_property
     def reference_data(self):
@@ -170,7 +182,7 @@ class ContactsSink(SalesforceV3Sink):
             campaign_members_fields = self.campaign_member_fields
             existing_fields = list(self._fields.keys())
             existing_fields.extend(list(campaign_members_fields.keys()))
-            self.process_custom_fields(record["custom_fields"], exclude_fields=existing_fields)
+            self.new_custom_fields = self.process_custom_fields(record["custom_fields"], exclude_fields=existing_fields)
             fields = self._fields
 
             # add here the fields that will be sent in campaignmember payload
@@ -414,14 +426,13 @@ class ContactsSink(SalesforceV3Sink):
                 campaign_ids.append(record[0]["Id"])
             else:
                 self.logger.info(f"No Campaign found with Name='{identifier}'. Creating new Campaign.")
-                sql_safe_identifier = escape_sql_quotes(identifier)
                 response = self.request_api(
                     "POST",
                     endpoint="sobjects/Campaign",
-                    request_data={"Name": sql_safe_identifier}
+                    request_data={"Name": identifier}
                 )
                 cid = response.json().get("id")
-                self.logger.info(f"Created Campaign '{sql_safe_identifier}' with id: {cid}")
+                self.logger.info(f"Created Campaign '{identifier}' with id: {cid}")
                 campaign_ids.append(cid)
 
         # 2) Resolve or create campaigns from `campaigns` param
@@ -1084,8 +1095,8 @@ class FallbackSink(SalesforceV3Sink):
             _lookup_fields = [_lookup_fields]
         # check if the lookup fields exist for the object
         _lookup_fields = [field for field in _lookup_fields if field in fields]
-        # get all the values for all lookup fields
-        lookup_values = {field: record.get(field) for field in _lookup_fields}
+        # only include lookup fields that have a non-None value (so we don't build field = 'None' in the query)
+        lookup_values = {field: record.get(field) for field in _lookup_fields if record.get(field) is not None}
 
         req = None
         # lookup for record with field from config
