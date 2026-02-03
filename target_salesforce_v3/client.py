@@ -525,12 +525,21 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             mapping = {k:v for k,v in mapping.items() if not existing_record.get(k) or k == "Id"}
         return mapping
 
+    @staticmethod
+    def _escape_sql_quotes(value):
+        """Escape single and double quotes for safe use in SOQL string literals."""
+        if value is None:
+            return value
+        s = str(value)
+        return s.replace('"', r'\"').replace("'", r"\'")
+
     def get_lookup_filter(self, lookup_values, method):
         conditions = []
         if lookup_values:
             query_operator = "AND" if method == "all" else "OR"
             for field, value in lookup_values.items():
-                conditions.append(f"{field} = '{value}'")
+                safe_value = self._escape_sql_quotes(value)
+                conditions.append(f"{field} = '{safe_value}'")
 
             return f" {query_operator} ".join(conditions)
     

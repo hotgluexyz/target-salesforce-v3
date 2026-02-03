@@ -394,17 +394,12 @@ class ContactsSink(SalesforceV3Sink):
         campaigns = [] if campaigns is None else campaigns
         lists = [] if lists is None else lists
 
-        def escape_sql_quotes(s: str) -> str:
-            if s is None:
-                return s
-            return s.replace('"', r'\"').replace("'", r"\'")
-
         # Query templates
         campaign_by_id_query = lambda cid: (
-            f"SELECT Id FROM Campaign WHERE Id = '{escape_sql_quotes(cid)}' ORDER BY CreatedDate ASC"
+            f"SELECT Id FROM Campaign WHERE Id = '{self._escape_sql_quotes(cid)}' ORDER BY CreatedDate ASC"
         )
         campaign_by_name_query = lambda name: (
-            f"SELECT Id FROM Campaign WHERE Name = '{escape_sql_quotes(name)}' ORDER BY CreatedDate ASC"
+            f"SELECT Id FROM Campaign WHERE Name = '{self._escape_sql_quotes(name)}' ORDER BY CreatedDate ASC"
         )
 
         # 1) Collect campaign IDs from `lists`
