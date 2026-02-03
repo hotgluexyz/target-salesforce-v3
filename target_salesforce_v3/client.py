@@ -375,19 +375,24 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             return response
         return [{k: v for k, v in r.items() if k in fields} for r in response]
 
-    def process_custom_fields(self, record, exclude_fields=[]) -> None:
+    def process_custom_fields(self, record, exclude_fields=[]) -> list:
         """
-            Process the custom fields for Salesforce,
-            creating unexsisting custom fields based on the present custom fields available in the record.
+        Process custom fields for Salesforce.
 
-            Inputs:
-            - record
+        This method checks the custom fields present in the given record and creates any missing custom fields in Salesforce.
+        Only executes if 'create_custom_fields' is enabled in the config.
+
+        Args:
+            record (list of dict): List of custom field dicts, each with at least a 'name' key (and optionally 'label').
+
+        Returns:
+            list: Names of newly created custom fields.
         """
 
         # If the config.json does not specify to create the custom fields
         # automatically, then just don't execute this function
         if not self.config.get('create_custom_fields', False):
-            return None
+            return []
 
         new_custom_fields = []
 
