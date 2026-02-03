@@ -13,13 +13,15 @@ from datetime import datetime
 
 from hotglue_singer_sdk.exceptions import FatalAPIError, RetriableAPIError
 from hotglue_singer_sdk.sinks import RecordSink
-from hotglue_etl_exceptions import InvalidPayloadError
+from hotglue_etl_exceptions import InvalidPayloadError, InvalidCredentialsError
 
 from target_salesforce_v3.auth import SalesforceV3Authenticator
 
 from hotglue_singer_sdk.target_sdk.client import HotglueSink
 import os
 import json
+
+from typing import Union, get_origin, get_args
 
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
@@ -58,6 +60,10 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         if "user_agent" in self.config:
             headers["User-Agent"] = self.config.get("user_agent")
         return headers
+    
+    @property
+    def lookup_fields_dict(self):
+        return self.config.get("lookup_fields") or {}
 
     def get_fields_for_object(self, object_type):
         """Check if Salesforce has an object type and fetches its fields."""
@@ -81,6 +87,13 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
                     msg = response.text
                 self.logger.error(self.response_error_message(response))
                 raise InvalidPayloadError(msg)
+            elif response.status_code == 401:
+                try:
+                    error = response.json()[0]
+                    msg = f"{error['errorCode']}: {error['message']}"
+                except:
+                    msg = response.text
+                raise InvalidCredentialsError(msg)
             try:
                 msg = response.text
             except:
@@ -245,12 +258,34 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         if not instance_url:
             raise Exception("instance_url not defined in config")
         return f"{instance_url}/services/data/v{self.api_version}/{endpoint}"
+    
+    def get_unified_list_fields(self):
+        """Return field names that are list types (List[...] or Optional[List[...]])."""
+        list_fields = []
+        for field_name, field in self.unified_schema.model_fields.items():
+            annotation = field.annotation
+            origin = get_origin(annotation)
+            if origin is list:
+                list_fields.append(field_name)
+            elif origin is Union:
+                args = get_args(annotation)
+                if any(get_origin(a) is list for a in args):
+                    list_fields.append(field_name)
+        return list_fields
+
 
     def validate_input(self, record: dict):
         if not record:
             return {}
         if isinstance(record,dict):
-            return self.unified_schema(**record).dict()
+            list_fields = self.get_unified_list_fields()
+            for f in list_fields:
+                if record.get(f) and not isinstance(record[f], list):
+                    try:
+                        record[f] = json.loads(record[f])
+                    except:
+                        self.logger.warning(f"Failed to parse {f} as list. Value: {record[f]}") 
+            return self.unified_schema(**record).model_dump()
         else:
             raise Exception(f"Invalid record: {record}")
 
@@ -321,6 +356,8 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         if not fields_dict["createable"]:
             raise NoCreatableFieldsException(f"No creatable fields for stream {self.name} stream, check your permissions")
         for k, v in mapping.items():
+            if k == "campaign_member_fields" and self.name.lower() in ["contacts", "customers"]:
+                payload[k] = v
             if k.endswith("__c") or k in fields_dict["createable"] + ["Id"]:
                 payload[k] = v
 
@@ -338,7 +375,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             return response
         return [{k: v for k, v in r.items() if k in fields} for r in response]
 
-    def process_custom_fields(self, record) -> None:
+    def process_custom_fields(self, record, exclude_fields=[]) -> None:
         """
             Process the custom fields for Salesforce,
             creating unexsisting custom fields based on the present custom fields available in the record.
@@ -359,18 +396,27 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         needs_to_refresh_fields_cache = False
         for cf in record:
             cf_name = cf['name']
+            if cf_name in exclude_fields:
+                self.logger.info(f"Not creating {cf_name} as it's in exclude_fields list")
+                continue
             if not cf_name.endswith('__c'):
                 cf_name+='__c'
             if cf_name not in salesforce_custom_fields:
                 # If there's a custom field in the record that is not in Salesforce
                 # create it
                 self.add_custom_field(cf['name'], label = cf.get('label'))
+                self.new_custom_fields.append(cf_name)
                 needs_to_refresh_fields_cache = True
         
         if needs_to_refresh_fields_cache:
             self.logger.info("Refreshing fields cache")
             self.sf_fields_description.cache_clear()
         return None
+
+    def process_custom_field_value (self, value):
+        if value.lower() in ["true", "false"]:
+            return True if value.lower() == "true" else False
+        return value
 
     def add_custom_field(self,cf,label=None):
         if not label:
@@ -458,14 +504,28 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         self.logger.info(f"Field permission for {field_name} updated for permission set {permission_set_id}, response: {response.text}")
     
 
-    def map_only_empty_fields(self, mapping, sobject_name, lookup_field):       
-        fields = ",".join([field for field in mapping.keys()])
+    def map_only_empty_fields(self, mapping, sobject_name, lookup_filter):
+        fields = [field for field in mapping.keys()]
+        if "Id" not in fields:
+            fields.append("Id")   
+        fields = ",".join(fields)
         data = self.query_sobject(
-            query = f"SELECT {fields} from {sobject_name} WHERE {lookup_field}",
+            query = f"SELECT {fields} from {sobject_name} WHERE {lookup_filter}",
         )
         if data:
-            mapping = {k:v for k,v in mapping.items() if not data[0].get(k) or k == "Id"}
+            existing_record = data[0]
+            mapping.update({"Id": existing_record["Id"]})
+            mapping = {k:v for k,v in mapping.items() if not existing_record.get(k) or k == "Id"}
         return mapping
+
+    def get_lookup_filter(self, lookup_values, method):
+        conditions = []
+        if lookup_values:
+            query_operator = "AND" if method == "all" else "OR"
+            for field, value in lookup_values.items():
+                conditions.append(f"{field} = '{value}'")
+
+            return f" {query_operator} ".join(conditions)
     
     def read_json_file(self, filename):
         # read file
