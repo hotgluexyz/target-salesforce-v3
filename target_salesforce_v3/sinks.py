@@ -27,6 +27,23 @@ class ContactsSink(SalesforceV3Sink):
     contact_type = "Contact"
     available_names = ["contacts", "customers"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.new_custom_fields = []
+
+    @cached_property
+    def _contact_fields(self):
+        return self.get_fields_for_object("Contact")
+
+    @cached_property
+    def _lead_fields(self):
+        return self.get_fields_for_object("Lead")
+
+    @property
+    def _fields(self):
+        """Fields for the current contact_type (Contact or Lead). Not cached so mixed records use the correct object."""
+        return self._lead_fields if self.contact_type == "Lead" else self._contact_fields
+
     @cached_property
     def reference_data(self):
         params = {"q": "SELECT id, name from Account"}
@@ -34,8 +51,12 @@ class ContactsSink(SalesforceV3Sink):
         response = response.json()["records"]
         return [{k: v for k, v in r.items() if k in ["Id", "Name"]} for r in response]
 
-    def preprocess_record(self, record: dict, context: dict):
+    @cached_property
+    def campaign_member_fields(self):
+        return self.get_fields_for_object("CampaignMember")
 
+    def preprocess_record(self, record: dict, context: dict):
+        # 1. Map and process record
         # Parse data
         if isinstance(record.get("addresses"), str):
             record["addresses"] = json.loads(record["addresses"])
@@ -92,6 +113,9 @@ class ContactsSink(SalesforceV3Sink):
             "AnnualRevenue": record.get("annual_revenue"),
         }
 
+        campaigns = record.get("campaigns")
+        lists = record.get("lists")
+
         mapping_copy = mapping.copy()
         for key,value in mapping_copy.items():
             if value is None: mapping.pop(key)
@@ -102,40 +126,8 @@ class ContactsSink(SalesforceV3Sink):
         elif self.contact_type == "Lead":
             mapping.update({"Company": record.get("company_name")})
 
-
-        # check if record already exists
-        lookup_field = None
-        if record.get('id'):
-            # If contact has an Id will use it to updatev
-            mapping.update({"Id": record['id']})
-            lookup_field = f"Id = '{record['id']}'"
-        elif record.get("external_id"):
-            external_id = record["external_id"]
-            mapping[external_id["name"]] = external_id["value"]
-            lookup_field = f"{external_id['name']} = '{external_id['value']}'"
-        else:
-            # If no Id we'll use email to search for an existing record
-            if record.get('email'):
-                # Get contact_id based on email
-                data = self.query_sobject(
-                    query = f"SELECT Name, Id from {self.contact_type} WHERE Email = '{record.get('email')}'",
-                    fields = ['Name', 'Id']
-                )
-                if data:
-                    id = data[0].get("Id")
-                    mapping.update({"Id":id})
-                    lookup_field = f"Id = '{id}'"
-
         # We map tags => topics in Salesforce
         self.topics = record.get('tags')
-
-        # We map campaigns => campaigns in Salesforce
-        if record.get('campaigns'):
-            self.campaigns = record['campaigns']
-        elif record.get("lists"):
-            self.campaigns = [{"name": list_item} for list_item in record.get("lists")]
-        else:
-            self.campaigns = None
 
         if record.get("addresses"):
             address = record["addresses"][0]
@@ -181,11 +173,34 @@ class ContactsSink(SalesforceV3Sink):
             mapping[phone_type] = phone.get("number")
 
         if record.get("custom_fields"):
-            self.process_custom_fields(record["custom_fields"])
-            for cf in record.get("custom_fields"):
-                if not cf['name'].endswith('__c'):
-                    cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+            '''
+            if create_custom_fields flag is on, we create custom fields
+             excluding non-custom fields that already exist on Contact or CampaignMember
+
+             This is to protect against the case where non-custom fields are passed in custom_fields
+            '''
+            campaign_members_fields = self.campaign_member_fields
+            existing_fields = list(self._fields.keys())
+            existing_fields.extend(list(campaign_members_fields.keys()))
+            self.new_custom_fields = self.process_custom_fields(record["custom_fields"], exclude_fields=existing_fields)
+            fields = self._fields
+
+            # add here the fields that will be sent in campaignmember payload
+            mapping["campaign_member_fields"] = {}
+            # process custom fields
+            custom_fields = {cust["name"]: self.process_custom_field_value(cust["value"]) for cust in record["custom_fields"]}
+            for key, value in custom_fields.items():
+                # check first if field belongs to campaignmembers
+                if campaign_members_fields.get(key):
+                    # Check to make sure field is not read-only
+                    if campaign_members_fields[key]["createable"] or campaign_members_fields[key]["updateable"]:
+                        mapping["campaign_member_fields"][key] = value
+                    else:
+                        self.logger.warning(f"Field {key} is read-only and cannot be updated.")
+                if (fields.get(key) and (fields[key]["createable"] or fields[key]["updateable"] or key.lower() in ["id", "externalid"])) or key.endswith("__r") or fields.get(key+"Id"):
+                    mapping[key] = value
+                if f"{key}__c" in self.new_custom_fields:
+                    mapping.update({f"{key}__c": value})
 
         if not mapping.get("AccountId") and record.get("company_name"):
             account_id = (
@@ -197,10 +212,48 @@ class ContactsSink(SalesforceV3Sink):
 
         # validate mapping
         mapping = self.validate_output(mapping)
-        
-        # If flag only_upsert_empty_fields is true, only upsert empty fields
-        if self.config.get("only_upsert_empty_fields") and lookup_field:
-            mapping = self.map_only_empty_fields(mapping, self.contact_type, lookup_field)
+
+        # 2. Check if record exist based on default lookup_fields or lookup_fields set in config
+        lookup_field = None
+        lookup_method = self.config.get("lookup_method", "sequential")
+        # check if record already exists
+        if record.get('id'):
+            # If contact has an Id will use it to updatev
+            mapping.update({"Id": record['id']})
+            lookup_field = f"Id = '{record['id']}'"
+        # if lookup_fields set for unified sinks check those first
+        elif self.lookup_fields_dict.get(self.contact_type):
+            lookup_values = {
+                field: mapping.get(field)
+                for field in self.lookup_fields_dict.get(self.contact_type)
+                if field in mapping
+            }
+            if lookup_values:
+                lookup_field = self.get_lookup_filter(lookup_values, lookup_method)
+        elif record.get("external_id"):
+            external_id = record["external_id"]
+            mapping[external_id["name"]] = external_id["value"]
+            lookup_field = f"{external_id['name']} = '{external_id['value']}'"
+        elif record.get('email'):
+            lookup_field = f"Email = '{record.get('email')}'"
+
+        if lookup_field:
+            # If flag only_upsert_empty_fields is true, only upsert empty fields (this will fill the Id field)
+            if self.config.get("only_upsert_empty_fields"):
+                campaign_member_fields = mapping.pop("campaign_member_fields", None)
+                mapping = self.map_only_empty_fields(mapping, self.contact_type, lookup_field)
+                mapping["campaign_member_fields"] = campaign_member_fields
+            elif not mapping.get("Id"):
+                # If Id is missing, add it to mapping using lookup_field
+                data = self.query_sobject(
+                    query=f"SELECT Id from {self.contact_type} WHERE {lookup_field}",
+                    fields=['Id']
+                )
+                if data:
+                    mapping.update({"Id": data[0].get("Id")})
+
+        mapping["_campaigns"] = campaigns
+        mapping["_lists"] = lists
 
         return mapping
 
@@ -216,11 +269,16 @@ class ContactsSink(SalesforceV3Sink):
             fields_dict = self.sf_fields_description()
             fields = fields_dict["external_ids"]
 
+        # remove campaigns and lists from record because it doesn't exist in Contact's object
+        record_campaigns = record.pop("_campaigns", [])
+        record_lists = record.pop("_lists", [])
+
         for field in fields:
             if record.get(field):
                 try:
                     update_record = record.copy()
                     id = update_record.pop(field)
+                    campaign_members_fields = update_record.pop("campaign_member_fields", {})
                     if update_record:
                         url = "/".join([self.endpoint, field, record[field]])
 
@@ -232,24 +290,25 @@ class ContactsSink(SalesforceV3Sink):
                     record = None
 
                     # Check for campaigns to be added
-                    if self.campaigns:
-                        self.assign_to_campaign(id,self.campaigns)
+                    if record_campaigns or record_lists:
+                        self.assign_to_campaign(id, record_campaigns, record_lists, campaign_members_fields)
 
                     if self.topics:
                         self.assign_to_topic(id,self.topics)
 
                     return id, True, state_updates
                 except Exception as e:
-                    self.logger.exception(f"Could not PATCH to {url}: {e}")
+                    self.logger.exception(f"An error occured while upserting contact: {e}")
                     raise e
         if record:
             try:
+                campaign_members_fields = record.pop("campaign_member_fields", {})
                 response = self.request_api("POST", request_data=record)
                 id = response.json().get("id")
                 self.logger.info(f"{self.contact_type} created with id: {id}")
                 # Check for campaigns to be added
-                if self.campaigns:
-                    self.assign_to_campaign(id,self.campaigns)
+                if record_campaigns or record_lists:
+                    self.assign_to_campaign(id, record_campaigns, record_lists, campaign_members_fields)
 
                 if self.topics:
                     self.assign_to_topic(id,self.topics)
@@ -320,60 +379,136 @@ class ContactsSink(SalesforceV3Sink):
                 self.logger.exception("Error encountered while creating TopicAssignment")
                 raise e
 
-    def assign_to_campaign(self,contact_id,campaigns:list) -> None:
+    def assign_to_campaign(self, contact_id, campaigns: list, lists: list, payload=None):
         """
-        This function recieves a contact_id and a list of campaigns and assigns the contact_id to each campaign
+        Assign a contact_id (or lead_id) to each campaign derived from `campaigns` or `lists`.
 
-        Input:
-        contact_id : str
-        campaigns : list[dict] eg. [{'id': None, 'name': 'Big Campaign'}, {'id': None, 'name': 'Huge Campaign'}]
+        Args:
+            contact_id: str
+            campaigns: list of dicts, e.g. [{'id': None, 'name': 'Big Campaign'}, ...]
+            lists: list of campaign identifiers (either 18- or 15-char Salesforce IDs, or names)
+            payload: optional dict of extra CampaignMember fields
         """
 
+        payload = {} if payload is None else payload
+        campaigns = [] if campaigns is None else campaigns
+        lists = [] if lists is None else lists
+
+        # Query templates
+        campaign_by_id_query = lambda cid: (
+            f"SELECT Id FROM Campaign WHERE Id = '{self._escape_sql_quotes(cid)}' ORDER BY CreatedDate ASC"
+        )
+        campaign_by_name_query = lambda name: (
+            f"SELECT Id FROM Campaign WHERE Name = '{self._escape_sql_quotes(name)}' ORDER BY CreatedDate ASC"
+        )
+
+        # 1) Collect campaign IDs from `lists`
+        campaign_ids: list[str] = []
+        for identifier in lists:
+            record = None
+            # check if identifier is a valid Salesforce ID
+            if (len(identifier) in (18, 15)) and identifier.isalnum():
+                record = self.query_sobject(
+                    query=campaign_by_id_query(identifier),
+                    fields=["Id"]
+                )
+            if not record:
+                record = self.query_sobject(
+                    query=campaign_by_name_query(identifier),
+                    fields=["Id"]
+                )
+            if record:
+                campaign_ids.append(record[0]["Id"])
+            else:
+                self.logger.info(f"No Campaign found with Name='{identifier}'. Creating new Campaign.")
+                response = self.request_api(
+                    "POST",
+                    endpoint="sobjects/Campaign",
+                    request_data={"Name": identifier}
+                )
+                cid = response.json().get("id")
+                self.logger.info(f"Created Campaign '{identifier}' with id: {cid}")
+                campaign_ids.append(cid)
+
+        # 2) Resolve or create campaigns from `campaigns` param
         for campaign in campaigns:
+            cid = campaign.get("id")
+            if cid:
+                campaign_ids.append(cid)
+                continue
 
-            # Checks if there's an id, if not, query it
-            # Assuming campaigns are always created first
-            if campaign.get("id") is None:
-                # data = self.get_query(endpoint=f"sobjects/Campaign/Name/{campaign.get('name')}")
-                data = self.query_sobject(
-                    query = f"SELECT Id, CreatedDate from Campaign WHERE Name = '{campaign.get('name')}' ORDER BY CreatedDate ASC",
-                    fields = ['Id']
-                    )
-                # Extract capaign id from record
-                if not data:
-                    self.logger.info(f"No Campaign found with Name = '{campaign.get('name')}'\nCreating campaign ...")
-                    # Create the campaign since it doesn't exist
-                    response = self.request_api("POST", endpoint="sobjects/Campaign", request_data={
-                        "Name": campaign.get("name"),
-                    })
-                    id = response.json().get("id")
-                    self.logger.info(f"{self.name} created with id: {id}")
-                    campaign['campaign_id'] = id
-                else:
-                    campaign['campaign_id'] = data[0]['Id']
+            name = campaign.get("name", "")
+            if not name:
+                continue
 
-            # Assigns the customer_id to the campaign_id or lead_id
-            mapping = {"CampaignId": campaign.get("campaign_id") or campaign.get("id")}
+            record = self.query_sobject(
+                query=campaign_by_name_query(name),
+                fields=["Id"]
+            )
+            if record:
+                cid = record[0]["Id"]
+            else:
+                self.logger.info(f"No Campaign found with Name='{name}'. Creating new Campaign.")
+                response = self.request_api(
+                    "POST",
+                    endpoint="sobjects/Campaign",
+                    request_data={"Name": name}
+                )
+                cid = response.json().get("id")
+                self.logger.info(f"Created Campaign '{name}' with id: {cid}")
+
+            campaign["campaign_id"] = cid
+            campaign_ids.append(cid)
+
+        # Deduplicate
+        campaign_ids = list(set(campaign_ids))
+
+        # 3) For each campaign_id, upsert CampaignMember
+        for cid in campaign_ids:
+            mapping: dict[str, str] = {"CampaignId": cid}
             if self.contact_type == "Contact":
                 mapping.update({"ContactId": contact_id})
             else:
                 mapping.update({"LeadId": contact_id})
 
+            # add custom fields to payload
+            if payload:
+                mapping.update(payload)
+
+            # create or update campaign member
+            method = "POST"
+            url = "sobjects/CampaignMember"
+            action = "creat"
+            # check if lead or contact exists as a campaignmember
+            self.logger.info(f"INFO: Looking for CampaignMember with Contact/Lead Id:[{contact_id}] for Campaign Id:[{mapping.get('CampaignId')}].")
+            existing_campaign_member = self.query_sobject(
+                query=(
+                    "SELECT Id, CampaignId, ContactId, LeadId, Status FROM CampaignMember "
+                    f"WHERE CampaignId='{cid}' AND "
+                    f"(ContactId='{contact_id}' OR LeadId='{contact_id}')"
+                ),
+                fields = ['CampaignId', 'ContactId', 'LeadId', 'Status', 'Id']
+            )
+            if existing_campaign_member:
+                campaign_member_id = existing_campaign_member[0]["Id"]
+                method = "PATCH"
+                url = f"sobjects/CampaignMember/{campaign_member_id}"
+                action = "updat"
+
             # Create the CampaignMember
             self.logger.info(f"INFO: Adding Contact/Lead Id:[{contact_id}] as a CampaignMember of Campaign Id:[{mapping.get('CampaignId')}].")
 
             try:
-                response = self.request_api("POST",endpoint="sobjects/CampaignMember",request_data=mapping)
-                data = response.json()
-
-                if isinstance(data, list) and data[0].get("message") == "Already a campaign member.":
-                    return
-
-                id = data.get("id")
-                self.logger.info(f"CampaignMember created with id: {id}")
+                response = self.request_api(method,endpoint=url,request_data=mapping)
+                if response.status_code == 204:
+                    id = campaign_member_id
+                else:
+                    data = response.json()
+                    id = data.get("id")
+                self.logger.info(f"CampaignMember {action}ed with id: {id}")
             except Exception as e:
-                self.logger.exception("Error encountered while creating CampaignMember")
-                error = f"error: {e}, response: {response.json()}"
+                self.logger.exception(f"Error encountered while {action}ing CampaignMember")
+                self.logger.exception(f"error: {e}, request body: {mapping}")
                 raise e
 
 
@@ -462,10 +597,20 @@ class DealsSink(SalesforceV3Sink):
             for cf in record.get("custom_fields"):
                 if not cf['name'].endswith('__c'):
                     cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+                mapping.update({cf['name']:self.process_custom_field_value(cf['value'])})
 
+        # 2. get record using lookup_fields
         lookup_field = None
-        if record.get("external_id"):
+        lookup_method = self.config.get("lookup_method", "sequential")
+        if self.lookup_fields_dict.get(self.name):
+            lookup_values = {
+                field: mapping.get(field)
+                for field in self.lookup_fields_dict.get(self.name)
+                if field in mapping
+            }
+            if lookup_values:
+                lookup_field = self.get_lookup_filter(lookup_values, lookup_method)
+        elif record.get("external_id"):
             external_id = record["external_id"]
             mapping[external_id["name"]] = external_id["value"]
             lookup_field = f'{external_id["name"]} = {external_id["value"]}'
@@ -544,7 +689,7 @@ class CompanySink(SalesforceV3Sink):
             for cf in record.get("custom_fields"):
                 if not cf['name'].endswith('__c'):
                     cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+                mapping.update({cf['name']:self.process_custom_field_value(cf['value'])})
 
         return self.validate_output(mapping)
 
@@ -617,7 +762,7 @@ class RecurringDonationsSink(SalesforceV3Sink):
             for cf in record.get("custom_fields"):
                 if not cf['name'].endswith('__c'):
                     cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+                mapping.update({cf['name']:self.process_custom_field_value(cf['value'])})
 
         if record.get("external_id"):
             external_id = record["external_id"]
@@ -633,7 +778,7 @@ class CampaignSink(SalesforceV3Sink):
     available_names = ["campaigns"]
 
     def preprocess_record(self, record, context):
-
+        # 1. Process record
         record = self.validate_input(record)
 
         # fields = self.sf_fields_description
@@ -652,7 +797,7 @@ class CampaignSink(SalesforceV3Sink):
             # If Campaign has an Id will use it to update
             mapping.update({"Id":record['id']})
         else:
-            # If no Id we'll use email to search for an existing record
+            # If no Id we'll use name to search for an existing record
             data = self.query_sobject(
                 query = f"SELECT Name,Id,CreatedDate from Campaign WHERE Name = '{record.get('name')}' ORDER BY CreatedDate ASC",
                 fields = ['Name','Id']
@@ -666,13 +811,26 @@ class CampaignSink(SalesforceV3Sink):
             for cf in record.get("custom_fields"):
                 if not cf['name'].endswith('__c'):
                     cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+                mapping.update({cf['name']:self.process_custom_field_value(cf['value'])})
 
         mapping = self.validate_output(mapping)
 
-        # If flag only_upsert_empty_fields is true, only upsert empty fields
-        if self.config.get("only_upsert_empty_fields") and mapping.get("Id"):
+        # 2. Get record using lookup_fields
+        lookup_field = None
+        lookup_method = self.config.get("lookup_method", "sequential")
+        if self.lookup_fields_dict.get(self.name):
+            lookup_values = {
+                field: mapping.get(field)
+                for field in self.lookup_fields_dict.get(self.name)
+                if field in mapping
+            }
+            if lookup_values:
+                lookup_field = self.get_lookup_filter(lookup_values, lookup_method)
+        elif mapping.get("Id"):
             lookup_field = f"Id = {mapping['Id']}"
+
+        # If flag only_upsert_empty_fields is true, only upsert empty fields
+        if self.config.get("only_upsert_empty_fields") and lookup_field:
             mapping = self.map_only_empty_fields(mapping, "Campaign", lookup_field)
 
         return mapping
@@ -728,7 +886,7 @@ class CampaignMemberSink(SalesforceV3Sink):
     available_names = ["campaignmembers"]
 
     def preprocess_record(self, record, context) -> dict:
-
+        # 1. Map and process record
         mapping = {
             "CampaignId": record.get("campaign_id"),
             # "Description": record.get("description"),
@@ -761,13 +919,26 @@ class CampaignMemberSink(SalesforceV3Sink):
             for cf in record.get("custom_fields"):
                 if not cf['name'].endswith('__c'):
                     cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+                mapping.update({cf['name']:self.process_custom_field_value(cf['value'])})
 
         mapping = self.validate_output(mapping)
         
-        # If flag only_upsert_empty_fields is true, only upsert empty fields
-        if self.config.get("only_upsert_empty_fields") and mapping.get("Id"):
+        # 2. Get record using lookup_fields
+        lookup_field = None
+        lookup_method = self.config.get("lookup_method", "sequential")
+        if self.lookup_fields_dict.get(self.name):
+            lookup_values = {
+                field: mapping.get(field)
+                for field in self.lookup_fields_dict.get(self.name)
+                if field in mapping
+            }
+            if lookup_values:
+                lookup_field = self.get_lookup_filter(lookup_values, lookup_method)
+        elif mapping.get("Id"):
             lookup_field = f"Id = {mapping['Id']}"
+
+        # If flag only_upsert_empty_fields is true, only upsert empty fields
+        if self.config.get("only_upsert_empty_fields") and lookup_field:
             mapping = self.map_only_empty_fields(mapping, "CampaignMember", lookup_field)
 
         return mapping
@@ -790,7 +961,7 @@ class ActivitiesSink(SalesforceV3Sink):
     available_names = ["activities"]
 
     def preprocess_record(self, record, context):
-
+        # 1. Map and process record 
         record = self.validate_input(record)
 
         # fields = self.sf_fields_description
@@ -819,13 +990,26 @@ class ActivitiesSink(SalesforceV3Sink):
             for cf in record.get("custom_fields"):
                 if not cf['name'].endswith('__c'):
                     cf['name'] += '__c'
-                mapping.update({cf['name']:cf['value']})
+                mapping.update({cf['name']:self.process_custom_field_value(cf['value'])})
 
         mapping = self.validate_output(mapping)
 
-        # If flag only_upsert_empty_fields is true, only upsert empty fields
-        if self.config.get("only_upsert_empty_fields") and mapping.get("Id"):
+        # 2. Get record using lookup_fields
+        lookup_field = None
+        lookup_method = self.config.get("lookup_method", "sequential")
+        if self.lookup_fields_dict.get(self.name):
+            lookup_values = {
+                field: mapping.get(field)
+                for field in self.lookup_fields_dict.get(self.name)
+                if field in mapping
+            }
+            if lookup_values:
+                lookup_field = self.get_lookup_filter(lookup_values, lookup_method)
+        elif mapping.get("Id"):
             lookup_field = f"Id = {mapping['Id']}"
+
+        # If flag only_upsert_empty_fields is true, only upsert empty fields
+        if self.config.get("only_upsert_empty_fields") and lookup_field:
             mapping = self.map_only_empty_fields(mapping, "Task", lookup_field)
 
         return mapping
@@ -833,16 +1017,27 @@ class ActivitiesSink(SalesforceV3Sink):
 
 class FallbackSink(SalesforceV3Sink):
     endpoint = "sobjects/"
-
-    @property
-    def lookup_fields_dict(self):
-        return self.config.get("lookup_fields") or {}
+    not_searchable_by_mail = ["ContentVersion"]
 
     @property
     def name(self):
         return self.stream_name
     
-    not_searchable_by_mail = ["ContentVersion"]
+    def get_record(self, lookup_values, object_type, fields, record, method):
+        # get select fields for query
+        query_fields = [field for field in fields.keys() if field in record]
+        # add Id field to query_fields if it's not there
+        if "Id" not in query_fields:
+            query_fields.append("Id")
+        query_fields = ",".join(query_fields)
+
+        # get filter for query
+        query_filter = self.get_lookup_filter(lookup_values, method)
+        # execute query
+        query = f"SELECT {query_fields} FROM {object_type} WHERE {query_filter}"
+        req = self.request_api("GET", "queryAll", params={"q": query})
+        req = req.json().get("records")
+        return req
 
     def get_fields_for_object(self, object_type):
         """Return the fields for a Salesforce object.
@@ -888,19 +1083,24 @@ class FallbackSink(SalesforceV3Sink):
         record["object_type"] = object_type
 
         # If lookup_fields dict exist in config use it to check if the record exists in Salesforce
-        object_lookup_field = self.lookup_fields_dict.get(object_type)
-        # check if the lookup field exists for the object
-        object_lookup_field = object_lookup_field if object_lookup_field in fields else None
-        # check if the record has a value for the lookup field
-        lookup_value = record.get(object_lookup_field)
+        _lookup_fields = self.lookup_fields_dict.get(object_type) or []
+        lookup_method = self.config.get("lookup_method", "sequential")
+        # Standarize lookup fields as a list of strings
+        if isinstance(_lookup_fields, str):
+            _lookup_fields = [_lookup_fields]
+        # check if the lookup fields exist for the object
+        _lookup_fields = [field for field in _lookup_fields if field in fields]
+        # only include lookup fields that have a non-None value (so we don't build field = 'None' in the query)
+        lookup_values = {field: record.get(field) for field in _lookup_fields if record.get(field) is not None}
 
         req = None
         # lookup for record with field from config
-        if object_lookup_field and lookup_value:
-            query_fields = ",".join([field for field in fields.keys() if field in record] + ["Id"])
-            query = f"SELECT {query_fields} FROM {object_type} WHERE {object_lookup_field} = '{lookup_value}'"
-            req = self.request_api("GET", "queryAll", params={"q": query})
-            req = req.json().get("records")
+        if lookup_values:
+            if lookup_method == "all" and len(lookup_values) != len(_lookup_fields):
+                self.logger.info(f"Skipping lookup for record {record} because lookup_method is set to 'all' but not all fields have valid values")
+            else:
+                req = self.get_record(lookup_values, object_type, fields, record, lookup_method)
+
         # lookup for record with email fields
         elif self.config.get("lookup_by_email", True) and self.name not in self.not_searchable_by_mail:
             # Try to find object instance using email
@@ -908,14 +1108,23 @@ class FallbackSink(SalesforceV3Sink):
             email_values = [record.get(email_field) for email_field in email_fields if record.get(email_field)]
 
             for email_to_check in email_values:
+                if not email_to_check:
+                    continue
+
                 # Escape special characters on email
                 for char in ["+", "-"]:
                     if char in email_to_check:
                         email_to_check = email_to_check.replace(char, f"\{char}")
 
                 query = "".join(["FIND {", email_to_check, "} ", f" IN ALL FIELDS RETURNING {object_type}(id)"])
-                req = self.request_api("GET", "search/", params={"q": query})
-                req = req.json().get("searchRecords")
+                req = None
+                try:
+                    lookup_res = self.request_api("GET", "search/", params={"q": query})
+                    req = lookup_res.json().get("searchRecords")
+                except:
+                    self.logger.warning(f"Failed to lookup email field.")
+                    continue
+
                 if req:
                     break
 

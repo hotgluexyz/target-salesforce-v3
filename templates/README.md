@@ -83,14 +83,22 @@ If enabled, the target will only update existing Account records and will not cr
 - **Example**: `true`
 
 #### `lookup_fields` (object, optional)
-A dictionary mapping Salesforce object types to field names that should be used for looking up existing records. This is primarily used by the fallback sink.
+A dictionary mapping Salesforce object types to field name(s) that should be used for looking up existing records. Each value can be a single field name (string) or an array of field names. Used by unified sinks (Contacts, Deals, Companies, etc.) and the fallback sink. When multiple fields are specified, the `lookup_method` option controls how they are combined.
 - **Example**: 
   ```json
   {
     "CustomObject__c": "ExternalId__c",
-    "Account": "Custom_External_Id__c"
+    "Account": "Custom_External_Id__c",
+    "Contact": ["Email", "External_Id__c"]
   }
   ```
+
+#### `lookup_method` (string, optional)
+When `lookup_fields` specifies multiple fields for an object, this controls how they are combined when querying for existing records.
+- **`sequential`** (default): Records match if **any** of the lookup fields match (conditions joined with OR).
+- **`all`**: A record is only matched when **all** lookup fields match (conditions joined with AND). If any lookup field has no value, the lookup is skipped.
+- **Default**: `"sequential"`
+- **Example**: `"all"` (require all lookup fields to match)
 
 ## Configuration Examples
 
@@ -129,6 +137,7 @@ This example shows a more complete configuration with all available options:
   "lookup_fields": {
     "CustomObject__c": "ExternalId__c"
   },
+  "lookup_method": "sequential",
   "base_uri": "https://login.salesforce.com",
   "is_sandbox": false
 }

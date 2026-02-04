@@ -32,7 +32,7 @@ class TargetSalesforceV3(TargetHotglue):
     """Sample target for Api."""
 
     name = "target-salesforce-v3"
-    alerting_level = AlertingLevel.WARNING
+    alerting_level = AlertingLevel.ERROR
     MAX_PARALLELISM = 10
     SINK_TYPES = SINK_TYPES
     read_only_fields = {}
