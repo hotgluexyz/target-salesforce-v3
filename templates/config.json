@@ -8,6 +8,7 @@
   "user_agent": "target-salesforce-v3/0.0.1",
   "quota_percent_total": 80,
   "create_custom_fields": false,
+  "clear_falsy_date_fields": true,
   "only_upsert_empty_fields": false,
   "lookup_by_email": true,
   "only_upsert_accounts": false,
