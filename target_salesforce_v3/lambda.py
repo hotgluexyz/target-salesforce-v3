@@ -13,7 +13,7 @@ def real_time_handler(
 
         if not hasattr(mod, "real_time_handler"):
             raise Exception("This target does not support real time")
-    except Exception as e:
+    except Exception:
         raise
 
     return mod.real_time_handler(

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import urllib
 
 from hotglue_etl_exceptions import InvalidPayloadError
 from target_salesforce_v3.client import SalesforceV3Sink
@@ -118,7 +117,8 @@ class ContactsSink(SalesforceV3Sink):
 
         mapping_copy = mapping.copy()
         for key,value in mapping_copy.items():
-            if value is None: mapping.pop(key)
+            if value is None: 
+                mapping.pop(key)
         del mapping_copy
 
         if self.contact_type == "Contact":
@@ -136,7 +136,8 @@ class ContactsSink(SalesforceV3Sink):
             )
             if self.contact_type == "Contact":
                 _prefix = "Mailing"
-            else: _prefix = ""
+            else:
+                _prefix = ""
 
             mapping[f"{_prefix}Street"] = street
             mapping[f"{_prefix}City"] = address.get("city")
@@ -326,7 +327,7 @@ class ContactsSink(SalesforceV3Sink):
                 self.logger.info("INFO: This Contact/Lead was not found using Email will attempt to create it.")
             elif '[{"message":"No such column \'HasOptedOutOfEmail\' on sobject of type' in response.text:
                 self.update_field_permissions(profile = 'System Administrator', sobject_type = self.contact_type, field_name=f"{self.contact_type}.HasOptedOutOfEmail")
-                raise RetriableAPIError(f"DEBUG: HasOptedOutOfEmail column was not found, updating 'Field-Leve Security'\n'System Administrator'[x]")
+                raise RetriableAPIError("DEBUG: HasOptedOutOfEmail column was not found, updating 'Field-Leve Security'\n'System Administrator'[x]")
             else:
                 super().validate_response(response)
         else:
@@ -370,7 +371,7 @@ class ContactsSink(SalesforceV3Sink):
                 })
 
                 data = response.json()
-                self.logger.info(f"Added TopicAssignment")
+                self.logger.info("Added TopicAssignment")
             except Exception as e:
                 # Means it's already in the topic
                 if "DUPLICATE_VALUE" in str(e):
@@ -721,7 +722,7 @@ class RecurringDonationsSink(SalesforceV3Sink):
                 installment_period, "npe03__Installment_Period__c"
             )
 
-        fields_dict = self.sf_fields_description()
+        self.sf_fields_description()
         if record.get("created_at"):
             created_at = parse(record.get("created_at"))
         else:
@@ -1076,8 +1077,9 @@ class FallbackSink(SalesforceV3Sink):
         # NOTE: we need to keep relations (__r, xId)
         record = {k:v for k,v in record.items() if k.endswith("__r") or fields.get(k+"Id") or (fields.get(k) and (fields[k]["createable"] or fields[k]["updateable"] or k.lower() in ["id", "externalid"]))}
         
-        # set falsy date fields to None so they are nullified properly in Salesforce
-        record = {k: None if (not v and fields.get(k, {}).get("type") in ["date", "datetime"]) else v for k,v in record.items()}
+        # optionally set falsy date fields to None so they are nullified properly in Salesforce
+        if self.config.get("clear_falsy_date_fields", True):
+            record = {k: None if (not v and fields.get(k, {}).get("type") in ["date", "datetime"]) else v for k,v in record.items()}
 
         # add object_type
         record["object_type"] = object_type
@@ -1122,7 +1124,7 @@ class FallbackSink(SalesforceV3Sink):
                     lookup_res = self.request_api("GET", "search/", params={"q": query})
                     req = lookup_res.json().get("searchRecords")
                 except:
-                    self.logger.warning(f"Failed to lookup email field.")
+                    self.logger.warning("Failed to lookup email field.")
                     continue
 
                 if req:
@@ -1217,7 +1219,7 @@ class FallbackSink(SalesforceV3Sink):
                 self.link_attachment_to_object(id, linked_object_id)
                 self.logger.info(f"{object_type} updated using url {url} with id: {id}")
                 return id, True, state_updates
-            except Exception as e:
+            except Exception:
                 self.logger.exception(f"Error encountered while updating {object_type}")
         
         patch_errors = {}

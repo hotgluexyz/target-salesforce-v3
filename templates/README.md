@@ -67,6 +67,11 @@ If enabled, the target will automatically create custom fields in Salesforce whe
 - **Default**: `false`
 - **Example**: `true`
 
+#### `clear_falsy_date_fields` (boolean, optional)
+If enabled, the fallback sink converts falsy `date` and `datetime` field values to `null` so Salesforce clears existing values on update.
+- **Default**: `true`
+- **Example**: `false`
+
 #### `only_upsert_empty_fields` (boolean, optional)
 If enabled, when updating existing records, only fields that are currently empty/null will be updated. This prevents overwriting existing data.
 - **Default**: `false`
@@ -131,6 +136,7 @@ This example shows a more complete configuration with all available options:
   "user_agent": "target-salesforce-v3/0.0.1",
   "quota_percent_total": 80,
   "create_custom_fields": false,
+  "clear_falsy_date_fields": true,
   "only_upsert_empty_fields": false,
   "lookup_by_email": true,
   "only_upsert_accounts": false,
