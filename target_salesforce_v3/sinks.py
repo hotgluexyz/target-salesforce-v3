@@ -1234,7 +1234,7 @@ class FallbackSink(SalesforceV3Sink):
                             self.logger.info("Skipping creating new account, because only_upsert_accounts is true.")
                             return "missing", False, {"existing": True}
                         
-                    url = "/".join([endpoint, id_field, record.get(id_field)])
+                    url = "/".join([endpoint, id_field, str(record.get(id_field))])
                     self.logger.info(f"Trying to update {object_type} using id_field {id_field} and url {url}")
                     response = self.request_api("PATCH", endpoint=url, request_data={k: record[k] for k in set(list(record.keys())) - set([id_field])})
                     if response.status_code == 300:
