@@ -136,6 +136,22 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             ).format(remaining, allotted, percent_used_from_total, quota_percent_total)
             raise TargetSalesforceQuotaExceededException(total_message)
 
+    @staticmethod
+    def _strip_empty_associations(data):
+        """Remove association fields (__r) whose external ID values are all empty or null.
+
+        Salesforce returns confusing errors (e.g. INVALID_FIELD: Foreign key
+        external ID: not found) when an association reference is sent with
+        blank identifiers.  Stripping them here is safe - an empty association
+        can never resolve to a record.
+        """
+        if not isinstance(data, dict):
+            return data
+        return {
+            k: v for k, v in data.items()
+            if not (k.endswith("__r") and isinstance(v, dict) and all(val in (None, "") for val in v.values()))
+        }
+
     @backoff.on_exception(
         backoff.expo,
         (RetriableAPIError, requests.exceptions.ReadTimeout),
@@ -148,6 +164,9 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         """Prepare a request object."""
         url = self.url(endpoint)
         headers = self.http_headers
+
+        if request_data and isinstance(request_data, dict):
+            request_data = self._strip_empty_associations(request_data)
 
         response = requests.request(
             method=http_method,
