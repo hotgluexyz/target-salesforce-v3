@@ -1150,7 +1150,7 @@ class FallbackSink(SalesforceV3Sink):
 
     def upsert_record(self, record, context):
         if record == {} or record is None:
-            return None, False, {}
+            raise InvalidPayloadError("Record is empty or None")
 
         state_updates = dict()
 
@@ -1159,7 +1159,7 @@ class FallbackSink(SalesforceV3Sink):
 
         if record == {}:
             self.logger.info(f"Processing record for type {self.stream_name} failed. Check logs.")
-            return None, False, {}
+            raise InvalidPayloadError("Record is empty or None")
         
         # for files pop object id to link the file
         linked_object_id = record.pop("LinkedEntityId", None) if self.name == "ContentVersion" else None
