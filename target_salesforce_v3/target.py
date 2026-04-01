@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from hotglue_singer_sdk.target_sdk.target import TargetHotglue
 from hotglue_singer_sdk.helpers.capabilities import AlertingLevel
-
+from hotglue_singer_sdk import typing as th
 from target_salesforce_v3.sinks import (
     FallbackSink,
     ContactsSink,
@@ -32,11 +32,39 @@ class TargetSalesforceV3(TargetHotglue):
     """Sample target for Api."""
 
     name = "target-salesforce-v3"
-    alerting_level = AlertingLevel.ERROR
+    alerting_level = AlertingLevel.WARNING
     MAX_PARALLELISM = 10
     SINK_TYPES = SINK_TYPES
     read_only_fields = {}
     GLOBAL_PRIMARY_KEY = "Id"
+
+    config_jsonschema = th.PropertiesList(
+        th.Property(
+            "client_id",
+            th.StringType,
+            required=True,
+        ),
+        th.Property(
+            "client_secret",
+            th.StringType,
+            required=True,
+        ),
+        th.Property(
+            "redirect_uri",
+            th.StringType,
+            required=True,
+        ),
+        th.Property(
+            "refresh_token",
+            th.StringType,
+            required=True,
+        ),
+        th.Property(
+            "instance_url",
+            th.StringType,
+            required=True,
+        )
+    ).to_dict()
 
     def get_sink_class(self, stream_name: str):
         """Get sink for a stream."""
