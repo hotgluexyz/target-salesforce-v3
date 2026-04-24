@@ -1301,7 +1301,7 @@ class FallbackSink(SalesforceV3Sink):
             if patch_errors:
                 self.logger.error(f"Error(s) while updating record: {patch_errors}")
             if "duplicate" in str(e) and patch_errors:
-                return None, False, {"errors": f"failed during updating record, patch errors by externalId field {patch_errors}"}
+                raise InvalidPayloadError(f"failed during updating record, patch errors by externalId field {patch_errors}")
             
             self.logger.exception(f"Error encountered while creating {object_type}")
             raise e
