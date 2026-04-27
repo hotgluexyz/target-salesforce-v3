@@ -154,7 +154,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
 
     @backoff.on_exception(
         backoff.expo,
-        (RetriableAPIError, requests.exceptions.ReadTimeout),
+        (RetriableAPIError, requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError, ConnectionResetError),
         max_tries=8,
         factor=3,
     )
