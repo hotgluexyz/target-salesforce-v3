@@ -4,6 +4,7 @@ from typing import Any, Dict, Mapping
 from types import MappingProxyType
 import logging
 
+import backoff
 import requests
 from hotglue_etl_exceptions import InvalidCredentialsError
 
@@ -91,6 +92,12 @@ class SalesforceV3Authenticator:
         return self.oauth_request_body
 
     # Authentication and refresh
+    @backoff.on_exception(
+        backoff.expo,
+        (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError, ConnectionResetError),
+        max_tries=8,
+        factor=3,
+    )
     def update_access_token(self) -> None:
         """Update `access_token` along with: `last_refreshed` and `issued_at`.
 
@@ -118,6 +125,7 @@ class SalesforceV3Authenticator:
             headers=headers,
             data=auth_request_payload
         )
+        
         error_codes = ["invalid_grant", "invalid_client"]
         if token_response.status_code == 400 and any(error_code in token_response.text for error_code in error_codes):
             try:
