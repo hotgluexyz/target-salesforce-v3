@@ -4,8 +4,10 @@ from typing import Any, Dict, Mapping
 from types import MappingProxyType
 import logging
 
+import backoff
 import requests
 from hotglue_etl_exceptions import InvalidCredentialsError
+from hotglue_singer_sdk.exceptions import RetriableAPIError
 
 class SalesforceV3Authenticator:
     """API Authenticator for OAuth 2.0 flows."""
@@ -91,6 +93,12 @@ class SalesforceV3Authenticator:
         return self.oauth_request_body
 
     # Authentication and refresh
+    @backoff.on_exception(
+        backoff.expo,
+        (RetriableAPIError, requests.exceptions.ConnectionError, ConnectionResetError),
+        max_tries=8,
+        factor=3,
+    )
     def update_access_token(self) -> None:
         """Update `access_token` along with: `last_refreshed` and `issued_at`.
 
@@ -118,6 +126,7 @@ class SalesforceV3Authenticator:
             headers=headers,
             data=auth_request_payload
         )
+
         error_codes = ["invalid_grant", "invalid_client"]
         if token_response.status_code == 400 and any(error_code in token_response.text for error_code in error_codes):
             try:
@@ -125,6 +134,13 @@ class SalesforceV3Authenticator:
             except:
                 msg = token_response.text
             raise InvalidCredentialsError(msg)
+        if token_response.status_code == 429 or 500 <= token_response.status_code < 600:
+            msg = (
+                f"{token_response.status_code} Error: {token_response.reason} "
+                f"for OAuth token request. Response: {token_response.text}"
+                f"Request URL: {token_response.request.url}"
+            )
+            raise RetriableAPIError(msg)
         try:
             token_response.raise_for_status()
             self.logger.info("OAuth authorization attempt was successful.")
