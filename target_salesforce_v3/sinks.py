@@ -1028,7 +1028,8 @@ class FallbackSink(SalesforceV3Sink):
         for key in record:
             if key in {"FirstName", "LastName", "MiddleName", "Suffix"}:
                 return True
-            if key.startswith("Person"):
+            if key.startswith("Person") \
+                and not key.endswith("__c"):
                 return True
             if key.endswith("__pc"):
                 return True
