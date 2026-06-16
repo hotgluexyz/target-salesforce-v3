@@ -1058,6 +1058,23 @@ class FallbackSink(SalesforceV3Sink):
                 )
 
             record["RecordTypeId"] = person_account_record_type_id
+    
+    def _update_by_id(self, record, endpoint, object_type, linked_object_id, state_updates, object_id):
+        url = "/".join([endpoint, object_id])
+        try:
+            self.logger.info(f"Trying to update {object_type} with id: {object_id}")
+            response = self.request_api("PATCH", endpoint=url, request_data=record)
+            if response.status_code == 204:
+                self.logger.info(f"{object_type} updated with id: {object_id}")
+                return object_id, True, state_updates
+
+            id = response.json().get("id")
+            self.link_attachment_to_object(id, linked_object_id)
+            self.logger.info(f"{object_type} updated using url {url} with id: {id}")
+            return id, True, state_updates
+        except Exception:
+            self.logger.exception(f"Error encountered while updating {object_type}")
+            return None
 
     def get_record(self, lookup_values, object_type, fields, record, method):
         # get select fields for query
@@ -1242,20 +1259,9 @@ class FallbackSink(SalesforceV3Sink):
 
         if record.get("Id") or record.get("id"):
             object_id = record.pop("Id") or record.pop("id")
-            url = "/".join([endpoint, object_id])
-            try:
-                self.logger.info(f"Trying to update {object_type} with id: {object_id}")
-                response = self.request_api("PATCH", endpoint=url, request_data=record)
-                if response.status_code == 204:
-                    self.logger.info(f"{object_type} updated with id: {object_id}")
-                    return object_id, True, state_updates
-
-                id = response.json().get("id")
-                self.link_attachment_to_object(id, linked_object_id)
-                self.logger.info(f"{object_type} updated using url {url} with id: {id}")
-                return id, True, state_updates
-            except Exception:
-                self.logger.exception(f"Error encountered while updating {object_type}")
+            result_of_update_by_id = self._update_by_id(record, endpoint, object_type, linked_object_id, state_updates, object_id)
+            if result_of_update_by_id:
+                return result_of_update_by_id
         
         patch_errors = {}
         if len(possible_update_fields) > 0:
