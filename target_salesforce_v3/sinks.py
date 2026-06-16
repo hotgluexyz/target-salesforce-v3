@@ -1035,7 +1035,8 @@ class FallbackSink(SalesforceV3Sink):
                 return True
         return False
 
-    def _get_available_person_account_record_type_id(self):
+    @cached_property
+    def _available_person_account_record_type_id(self):
         describe = self.request_api("GET", endpoint="sobjects/Account/describe").json()
         for record_type in describe.get("recordTypeInfos", []):
             if record_type.get("developerName") == "PersonAccount" and record_type.get("available"):
@@ -1050,14 +1051,13 @@ class FallbackSink(SalesforceV3Sink):
                     "LastName is required to create a PersonAccount in Salesforce."
                 )
 
-            person_account_record_type_id = self._get_available_person_account_record_type_id()
-            if not person_account_record_type_id:
+            if not self._available_person_account_record_type_id():
                 raise InvalidUserRecordType(
                     "PersonAccount record type is not available for this Salesforce user. "
                     "Assign the PersonAccount record type to the integration user's profile."
                 )
 
-            record["RecordTypeId"] = person_account_record_type_id
+            record["RecordTypeId"] = self._available_person_account_record_type_id()
     
     def _update_by_id(self, record, endpoint, object_type, linked_object_id, state_updates, object_id):
         url = "/".join([endpoint, object_id])
