@@ -1042,6 +1042,23 @@ class FallbackSink(SalesforceV3Sink):
                 return record_type["recordTypeId"]
         return None
     
+    def _handle_person_account(self, record: dict) -> None:
+        """Validate if PersonAccount and enrich record before POSTing."""
+        if self._has_person_account_fields(record):
+            if not record.get("LastName"):
+                raise InvalidPayloadError(
+                    "LastName is required to create a PersonAccount in Salesforce."
+                )
+
+            person_account_record_type_id = self._get_available_person_account_record_type_id()
+            if not person_account_record_type_id:
+                raise InvalidUserRecordType(
+                    "PersonAccount record type is not available for this Salesforce user. "
+                    "Assign the PersonAccount record type to the integration user's profile."
+                )
+
+            record["RecordTypeId"] = person_account_record_type_id
+
     def get_record(self, lookup_values, object_type, fields, record, method):
         # get select fields for query
         query_fields = [field for field in fields.keys() if field in record]
@@ -1277,22 +1294,8 @@ class FallbackSink(SalesforceV3Sink):
                 if self.config.get("only_upsert_accounts"):
                     self.logger.info("Skipping creating new account, because only_upsert_accounts is true.")
                     return "missing", False, {"existing": True}
-                
-                #handle person account creation case
-                elif self._has_person_account_fields(record):
-                    if not record.get("LastName"):
-                        raise InvalidPayloadError(
-                            "LastName is required to create a PersonAccount in Salesforce."
-                        )
-
-                    person_account_record_type_id = self._get_available_person_account_record_type_id()
-                    if not person_account_record_type_id:
-                        raise InvalidUserRecordType(
-                            "PersonAccount record type is not available for this Salesforce user. "
-                            "Assign the PersonAccount record type to the integration user's profile."
-                        )
-
-                    record["RecordTypeId"] = person_account_record_type_id
+                else:
+                    self._handle_person_account(record)
 
             if self.name == "ContentVersion":
                 try:
