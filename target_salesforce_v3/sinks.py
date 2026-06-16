@@ -1037,7 +1037,7 @@ class FallbackSink(SalesforceV3Sink):
     def _get_available_person_account_record_type_id(self):
         describe = self.request_api("GET", endpoint="sobjects/Account/describe").json()
         for record_type in describe.get("recordTypeInfos", []):
-            if record_type.get("name") == "Person Account" and record_type.get("available"):
+            if record_type.get("developerName") == "PersonAccount" and record_type.get("available"):
                 return record_type["recordTypeId"]
         return None
     
