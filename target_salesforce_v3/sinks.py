@@ -13,7 +13,7 @@ from dateutil.parser import parse
 from datetime import datetime
 from hotglue_singer_sdk.exceptions import FatalAPIError, RetriableAPIError
 
-from target_salesforce_v3.exceptions import InvalidDealRecord
+from target_salesforce_v3.exceptions import InvalidDealRecord, InvalidUserRecordType
 
 
 
@@ -1023,6 +1023,23 @@ class FallbackSink(SalesforceV3Sink):
     @property
     def name(self):
         return self.stream_name
+
+    def _has_person_account_fields(self, record: dict) -> bool:
+        for key in record:
+            if key in {"FirstName", "LastName", "MiddleName"}:
+                return True
+            if key.startswith("Person"):
+                return True
+            if key.endswith("__pc"):
+                return True
+        return False
+
+    def _get_available_person_account_record_type_id(self):
+        describe = self.request_api("GET", endpoint="sobjects/Account/describe").json()
+        for record_type in describe.get("recordTypeInfos", []):
+            if record_type.get("name") == "Person Account" and record_type.get("available"):
+                return record_type["recordTypeId"]
+        return None
     
     def get_record(self, lookup_values, object_type, fields, record, method):
         # get select fields for query
@@ -1255,9 +1272,26 @@ class FallbackSink(SalesforceV3Sink):
                 self.logger.info("Failed to find updatable entity, trying to create it.")
             
             # only for accounts
-            if object_type == "Account" and self.config.get("only_upsert_accounts"):
-                self.logger.info("Skipping creating new account, because only_upsert_accounts is true.")
-                return "missing", False, {"existing": True}
+            if object_type == "Account":
+                if self.config.get("only_upsert_accounts"):
+                    self.logger.info("Skipping creating new account, because only_upsert_accounts is true.")
+                    return "missing", False, {"existing": True}
+                
+                #handle person account creation case
+                elif self._has_person_account_fields(record):
+                    if not record.get("LastName"):
+                        raise InvalidPayloadError(
+                            "LastName is required to create a PersonAccount in Salesforce."
+                        )
+
+                    person_account_record_type_id = self._get_available_person_account_record_type_id()
+                    if not person_account_record_type_id:
+                        raise InvalidUserRecordType(
+                            "PersonAccount record type is not available for this Salesforce user. "
+                            "Assign the PersonAccount record type to the integration user's profile."
+                        )
+
+                    record["RecordTypeId"] = person_account_record_type_id
 
             if self.name == "ContentVersion":
                 try:
