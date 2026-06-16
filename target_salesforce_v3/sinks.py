@@ -1026,7 +1026,7 @@ class FallbackSink(SalesforceV3Sink):
 
     def _has_person_account_fields(self, record: dict) -> bool:
         for key in record:
-            if key in {"FirstName", "LastName", "MiddleName"}:
+            if key in {"FirstName", "LastName", "MiddleName", "Suffix"}:
                 return True
             if key.startswith("Person"):
                 return True
