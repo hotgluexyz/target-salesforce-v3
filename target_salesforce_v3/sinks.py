@@ -13,7 +13,7 @@ from dateutil.parser import parse
 from datetime import datetime
 from hotglue_singer_sdk.exceptions import FatalAPIError, RetriableAPIError
 
-from target_salesforce_v3.exceptions import InvalidDealRecord
+from target_salesforce_v3.exceptions import InvalidDealRecord, InvalidUserRecordType
 
 
 
@@ -1023,7 +1023,59 @@ class FallbackSink(SalesforceV3Sink):
     @property
     def name(self):
         return self.stream_name
+
+    def _has_person_account_fields(self, record: dict) -> bool:
+        for key in record:
+            if key in {"FirstName", "LastName", "MiddleName", "Suffix"}:
+                return True
+            if key.startswith("Person") \
+                and not key.endswith("__c"):
+                return True
+            if key.endswith("__pc"):
+                return True
+        return False
+
+    @cached_property
+    def _available_person_account_record_type_id(self):
+        describe = self.request_api("GET", endpoint="sobjects/Account/describe").json()
+        for record_type in describe.get("recordTypeInfos", []):
+            if record_type.get("developerName") == "PersonAccount" and record_type.get("available"):
+                return record_type["recordTypeId"]
+        return None
     
+    def _handle_person_account(self, record: dict) -> None:
+        """Validate if PersonAccount and enrich record before POSTing."""
+        if self._has_person_account_fields(record):
+            if not record.get("LastName"):
+                raise InvalidPayloadError(
+                    "LastName is required to create a PersonAccount in Salesforce."
+                )
+
+            if not self._available_person_account_record_type_id:
+                raise InvalidUserRecordType(
+                    "PersonAccount record type is not available for this Salesforce user. "
+                    "Assign the PersonAccount record type to the integration user's profile."
+                )
+
+            record["RecordTypeId"] = self._available_person_account_record_type_id
+    
+    def _update_by_id(self, record, endpoint, object_type, linked_object_id, state_updates, object_id):
+        url = "/".join([endpoint, object_id])
+        try:
+            self.logger.info(f"Trying to update {object_type} with id: {object_id}")
+            response = self.request_api("PATCH", endpoint=url, request_data=record)
+            if response.status_code == 204:
+                self.logger.info(f"{object_type} updated with id: {object_id}")
+                return object_id, True, state_updates
+
+            id = response.json().get("id")
+            self.link_attachment_to_object(id, linked_object_id)
+            self.logger.info(f"{object_type} updated using url {url} with id: {id}")
+            return id, True, state_updates
+        except Exception:
+            self.logger.exception(f"Error encountered while updating {object_type}")
+            return None
+
     def get_record(self, lookup_values, object_type, fields, record, method):
         # get select fields for query
         query_fields = [field for field in fields.keys() if field in record]
@@ -1207,20 +1259,9 @@ class FallbackSink(SalesforceV3Sink):
 
         if record.get("Id") or record.get("id"):
             object_id = record.pop("Id") or record.pop("id")
-            url = "/".join([endpoint, object_id])
-            try:
-                self.logger.info(f"Trying to update {object_type} with id: {object_id}")
-                response = self.request_api("PATCH", endpoint=url, request_data=record)
-                if response.status_code == 204:
-                    self.logger.info(f"{object_type} updated with id: {object_id}")
-                    return object_id, True, state_updates
-
-                id = response.json().get("id")
-                self.link_attachment_to_object(id, linked_object_id)
-                self.logger.info(f"{object_type} updated using url {url} with id: {id}")
-                return id, True, state_updates
-            except Exception:
-                self.logger.exception(f"Error encountered while updating {object_type}")
+            result_of_update_by_id = self._update_by_id(record, endpoint, object_type, linked_object_id, state_updates, object_id)
+            if result_of_update_by_id:
+                return result_of_update_by_id
         
         patch_errors = {}
         if len(possible_update_fields) > 0:
@@ -1255,9 +1296,12 @@ class FallbackSink(SalesforceV3Sink):
                 self.logger.info("Failed to find updatable entity, trying to create it.")
             
             # only for accounts
-            if object_type == "Account" and self.config.get("only_upsert_accounts"):
-                self.logger.info("Skipping creating new account, because only_upsert_accounts is true.")
-                return "missing", False, {"existing": True}
+            if object_type == "Account":
+                if self.config.get("only_upsert_accounts"):
+                    self.logger.info("Skipping creating new account, because only_upsert_accounts is true.")
+                    return "missing", False, {"existing": True}
+                else:
+                    self._handle_person_account(record)
 
             if self.name == "ContentVersion":
                 try:
