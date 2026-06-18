@@ -221,9 +221,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
                     id = response.json().get("id")
                     self.logger.info(f"{self.name} updated with id: {id}")
                     return id, True, state_updates
-                except TargetSalesforceQuotaExceededException:
-                    raise
-                except Exception:
+                except:
                     self.logger.info(f"{field} with id {record[field]} does not exist.")
 
         if "Id" in record:
