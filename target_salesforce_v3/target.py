@@ -36,6 +36,7 @@ class TargetSalesforceV3(TargetHotglue):
     MAX_PARALLELISM = 10
     SINK_TYPES = SINK_TYPES
     read_only_fields = {}
+    quota_exceeded_message = None
     GLOBAL_PRIMARY_KEY = "Id"
 
     config_jsonschema = th.PropertiesList(

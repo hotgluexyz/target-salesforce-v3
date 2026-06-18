@@ -191,11 +191,24 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
 
     def request_api(self, http_method, endpoint=None, params=None, request_data=None, headers=None):
         """Request records from REST endpoint(s), returning response records."""
+        target = getattr(self, "_target", None)
+        if target is not None and target.quota_exceeded_message:
+            raise TargetSalesforceQuotaExceededException(target.quota_exceeded_message)
+
         start_time = time.time()
         resp = self._request(http_method, endpoint, params, request_data, headers)
         end_time = time.time()
         self.logger.info(f"\t\tRequest time: {end_time - start_time} seconds. {http_method} {endpoint}")
-        self.check_salesforce_limits(resp)
+
+        try:
+            self.check_salesforce_limits(resp)
+        except TargetSalesforceQuotaExceededException as exc:
+            self.logger.error(str(exc))
+            if self._target is not None:
+                self._target.quota_exceeded_message = str(exc)
+        except Exception:
+            self.logger.exception("Failed to check Salesforce API limits")
+
         return resp
 
     def upsert_record(self, record: dict, context: dict) -> None:
