@@ -26,7 +26,7 @@ from typing import Union, get_origin, get_args
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
 
-class TargetSalesforceQuotaExceededException(Exception):
+class TargetSalesforceQuotaExceededException(InvalidCredentialsError):
     pass
 
 
@@ -221,7 +221,9 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
                     id = response.json().get("id")
                     self.logger.info(f"{self.name} updated with id: {id}")
                     return id, True, state_updates
-                except:
+                except TargetSalesforceQuotaExceededException:
+                    raise
+                except Exception:
                     self.logger.info(f"{field} with id {record[field]} does not exist.")
 
         if "Id" in record:
