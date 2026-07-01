@@ -1326,7 +1326,9 @@ class FallbackSink(SalesforceV3Sink):
                 try:
                     fields = json.loads(str(e))[0]['fields']
                 except:
-                    raise e
+                    raise InvalidPayloadError(
+                        f"Attempted to write read-only fields. Unable to extract read-only fields to retry request: {str(e)}"
+                    )
                 
                 self.logger.warning(f"Attempted to write read-only fields: {fields}. Removing them and retrying.")
                 # append read-only field to a list
