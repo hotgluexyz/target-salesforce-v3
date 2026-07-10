@@ -24,7 +24,7 @@ class ContactsSink(SalesforceV3Sink):
     campaigns = None
     topics = None
     contact_type = "Contact"
-    available_names = ["contacts", "customers", "contact"]
+    available_names = ["contacts", "customers"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

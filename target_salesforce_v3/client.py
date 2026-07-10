@@ -399,7 +399,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         if not fields_dict["createable"]:
             raise NoCreatableFieldsException(f"No creatable fields for stream {self.name} stream, check your permissions")
         for k, v in mapping.items():
-            if k == "campaign_member_fields" and self.name.lower() in ["contacts", "customers", "contact"]:
+            if k == "campaign_member_fields" and self.name.lower() in ["contacts", "customers"]:
                 payload[k] = v
             if k.endswith("__c") or k in fields_dict["createable"] + ["Id"]:
                 payload[k] = v
