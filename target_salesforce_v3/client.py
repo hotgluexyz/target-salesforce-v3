@@ -98,6 +98,17 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
                 msg = response.text
             except:
                 msg = self.response_error_message(response)
+            if not msg or not str(msg).strip():
+                request = getattr(response, "request", None)
+                url = getattr(request, "url", None) if request else None
+                status_code = getattr(response, "status_code", "unknown")
+                reason = getattr(response, "reason", None) or "Error"
+                msg = (
+                    f"{status_code} {reason}: empty response body "
+                    f"for path: {self.endpoint}"
+                )
+                if url:
+                    msg = f"{msg} (URL: {url})"
             raise FatalAPIError(msg)
 
     def response_error_message(self, response: requests.Response) -> str:
