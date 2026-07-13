@@ -96,6 +96,8 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
                 raise InvalidCredentialsError(msg)
             try:
                 msg = response.text
+                if not msg or not str(msg).strip():
+                    msg = self.response_error_message(response)
             except:
                 msg = self.response_error_message(response)
             raise FatalAPIError(msg)
