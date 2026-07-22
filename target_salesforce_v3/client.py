@@ -44,6 +44,8 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.api_version = self.config.get("api_version", "55.0").replace("v", "")
+        self._object_fields_cache = {}
+        self._sobjects_list_cache = None
 
     @property
     def permission_set_ids(self):
@@ -65,13 +67,30 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
     def lookup_fields_dict(self):
         return self.config.get("lookup_fields") or {}
 
+    def get_sobjects_list(self):
+        """Salesforce sobjects catalog; fetched once per sink instance."""
+        if self._sobjects_list_cache is None:
+            self._sobjects_list_cache = (
+                self.request_api("GET", endpoint="sobjects").json().get("sobjects", [])
+            )
+        return self._sobjects_list_cache
+
     def get_fields_for_object(self, object_type):
-        """Check if Salesforce has an object type and fetches its fields."""
-        req = self.request_api("GET", endpoint="sobjects/")
-        for object in req.json().get("sobjects", []):
-            if object["name"] == object_type or object["label"] == object_type or object["labelPlural"] == object_type:
-                obj_req = self.request_api("GET", endpoint=f"sobjects/{object['name']}/describe").json()
-                return {f["name"]: f for f in obj_req.get("fields", [])}
+        """Describe fields for an object type; cached for the sink lifetime."""
+        if object_type in self._object_fields_cache:
+            return self._object_fields_cache[object_type]
+
+        for obj in self.get_sobjects_list():
+            if object_type in (obj["name"], obj["label"], obj["labelPlural"]):
+                fields = {
+                    f["name"]: f
+                    for f in self.request_api(
+                        "GET", endpoint=f"sobjects/{obj['name']}/describe"
+                    ).json().get("fields", [])
+                }
+                self._object_fields_cache[object_type] = fields
+                return fields
+        return None
 
     def validate_response(self, response: requests.Response) -> None:
         """Validate HTTP response."""
@@ -452,6 +471,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         if needs_to_refresh_fields_cache:
             self.logger.info("Refreshing fields cache")
             self.sf_fields_description.cache_clear()
+            self._object_fields_cache.clear()
         return new_custom_fields
 
     def process_custom_field_value (self, value):
