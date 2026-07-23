@@ -26,7 +26,7 @@ from typing import Union, get_origin, get_args
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
 
-class TargetSalesforceQuotaExceededException(Exception):
+class TargetSalesforceQuotaExceededException(InvalidCredentialsError):
     pass
 
 
