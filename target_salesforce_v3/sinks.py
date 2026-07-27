@@ -1092,33 +1092,19 @@ class FallbackSink(SalesforceV3Sink):
         req = req.json().get("records")
         return req
 
-    def get_fields_for_object(self, object_type):
-        """Return the fields for a Salesforce object.
-        Args:
-            object_type (str): The name of the Salesforce object to get the fields for.
-        Returns:
-            dict: A dictionary of fields for the Salesforce object.
-        """
-        obj_req = self.request_api("GET", endpoint=f"sobjects/{object_type}/describe").json()
-        return {f["name"]: f for f in obj_req.get("fields", [])}
-
     def preprocess_record(self, record, context):
-        # Check if object exists in Salesforce
-        object_type = None
-        req = self.request_api("GET", "sobjects")
-        objects_list = req.json().get("sobjects", [])
-        for object in objects_list:
-            is_name = object["name"] == self.stream_name
-            is_label = object["label"] == self.stream_name
-            is_label_plural = object["labelPlural"] == self.stream_name
-            if is_name or is_label or is_label_plural:
-                self.logger.info(f"Processing record for type {self.stream_name}. Using fallback sink.")
-                object_type = object["name"]
-                break
-
+        object_type = next(
+            (
+                obj["name"]
+                for obj in self.get_sobjects_list()
+                if self.stream_name in (obj["name"], obj["label"], obj["labelPlural"])
+            ),
+            None,
+        )
         if not object_type:
             raise InvalidPayloadError(f"Record type {self.stream_name} doesn't exist on Salesforce.")
 
+        self.logger.info(f"Processing record for type {self.stream_name}. Using fallback sink.")
         fields = self.get_fields_for_object(object_type)
         
         # add field to link attachments
