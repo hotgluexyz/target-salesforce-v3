@@ -676,7 +676,7 @@ class CompanySink(SalesforceV3Sink):
 
         phone_types = {"Phone": ["primary"], "Fax": ["fax"]}
 
-        phones = record.get("phone_numbers", [])
+        phones = record.get("phone_numbers") or []
         for i, phone in enumerate(phones):
             type = phone.get("type")
             phone_type = list(phone_types.keys())[i]
