@@ -155,5 +155,8 @@ class SalesforceV3Authenticator:
         self._target._config["access_token"] = token_json["access_token"]
         self._target._config["issued_at"] = issued_at
         self._target._config["instance_url"] = token_json["instance_url"]
+        if token_json.get("refresh_token"):
+            self._target._config["refresh_token"] = token_json["refresh_token"]
+        
         with open(self._target._config_file_path, "w") as outfile:
             json.dump(self._target._config, outfile, indent=4)
