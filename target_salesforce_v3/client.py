@@ -206,8 +206,11 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
                     return self._request(
                         http_method, endpoint, params=params, request_data={k: v for k,v in request_data.items() if k not in error.get("fields")}, headers=headers
                     )
-
-        self.validate_response(response)
+        try:
+            self.validate_response(response)
+        except InvalidCredentialsError as e:
+            self._target._config["issued_at"] = 0
+            raise RetriableAPIError(f"{e}, refreshing token and retrying request")
         return response
 
     def request_api(self, http_method, endpoint=None, params=None, request_data=None, headers=None):
