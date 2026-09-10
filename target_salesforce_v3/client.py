@@ -216,9 +216,8 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
 
     def request_api(self, http_method, endpoint=None, params=None, request_data=None, headers=None):
         """Request records from REST endpoint(s), returning response records."""
-        target = getattr(self, "_target", None)
-        if target is not None and target.quota_exceeded_message:
-            raise TargetSalesforceQuotaExceededException(target.quota_exceeded_message)
+        if self._target.quota_exceeded_message:
+            raise TargetSalesforceQuotaExceededException(self._target.quota_exceeded_message)
 
         start_time = time.time()
         resp = self._request(http_method, endpoint, params, request_data, headers)
@@ -229,8 +228,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             self.check_salesforce_limits(resp)
         except TargetSalesforceQuotaExceededException as exc:
             self.logger.error(str(exc))
-            if self._target is not None:
-                self._target.quota_exceeded_message = str(exc)
+            self._target.quota_exceeded_message = str(exc)
         except Exception:
             self.logger.exception("Failed to check Salesforce API limits")
 
