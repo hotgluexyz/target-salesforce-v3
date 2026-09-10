@@ -3,15 +3,15 @@ from hotglue_singer_sdk.target_sdk.auth import OAuthAuthenticator
 
 def get_token_url(config: dict) -> str:
     """Build the Salesforce OAuth2 token endpoint."""
-    if config.get("base_uri"):
-        is_sandbox = config["base_uri"] == "https://test.salesforce.com"
-    else:
-        val = config.get("is_sandbox")
-        is_sandbox = val is True or (isinstance(val, str) and val.lower() == "true")
+    is_sandbox = (
+        config.get("base_uri") == "https://test.salesforce.com"
+        if config.get("base_uri")
+        else config.get("is_sandbox")
+    )
 
     if is_sandbox:
-        return "https://test.salesforce.com/services/oauth2/token"
-    return "https://login.salesforce.com/services/oauth2/token"
+        return 'https://test.salesforce.com/services/oauth2/token'
+    return 'https://login.salesforce.com/services/oauth2/token'
 
 
 class SalesforceV3Authenticator(OAuthAuthenticator):
