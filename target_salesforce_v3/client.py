@@ -15,7 +15,7 @@ from hotglue_singer_sdk.exceptions import FatalAPIError, RetriableAPIError
 from hotglue_singer_sdk.sinks import RecordSink
 from hotglue_etl_exceptions import InvalidPayloadError, InvalidCredentialsError
 
-from target_salesforce_v3.auth import SalesforceV3Authenticator
+from target_salesforce_v3.auth import SalesforceV3Authenticator, get_token_url
 
 from hotglue_singer_sdk.target_sdk.client import HotglueSink
 import os
@@ -46,6 +46,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         self.api_version = self.config.get("api_version", "55.0").replace("v", "")
         self._object_fields_cache = {}
         self._sobjects_list_cache = None
+        self._authenticator = None
 
     @property
     def permission_set_ids(self):
@@ -209,15 +210,14 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
         try:
             self.validate_response(response)
         except InvalidCredentialsError as e:
-            self._target._config["issued_at"] = 0
+            self.authenticator.invalidate()
             raise RetriableAPIError(f"{e}, refreshing token and retrying request")
         return response
 
     def request_api(self, http_method, endpoint=None, params=None, request_data=None, headers=None):
         """Request records from REST endpoint(s), returning response records."""
-        target = getattr(self, "_target", None)
-        if target is not None and target.quota_exceeded_message:
-            raise TargetSalesforceQuotaExceededException(target.quota_exceeded_message)
+        if self._target.quota_exceeded_message:
+            raise TargetSalesforceQuotaExceededException(self._target.quota_exceeded_message)
 
         start_time = time.time()
         resp = self._request(http_method, endpoint, params, request_data, headers)
@@ -228,8 +228,7 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
             self.check_salesforce_limits(resp)
         except TargetSalesforceQuotaExceededException as exc:
             self.logger.error(str(exc))
-            if self._target is not None:
-                self._target.quota_exceeded_message = str(exc)
+            self._target.quota_exceeded_message = str(exc)
         except Exception:
             self.logger.exception("Failed to check Salesforce API limits")
 
@@ -281,11 +280,12 @@ class SalesforceV3Sink(HotglueSink, RecordSink):
 
     @property
     def authenticator(self):
-        url = self.url()
-        return SalesforceV3Authenticator(
-            self._target,
-            url
-        )
+        if self._authenticator is None:
+            self._authenticator = SalesforceV3Authenticator(
+                self._target,
+                auth_endpoint=get_token_url(self._target._config),
+            )
+        return self._authenticator
 
     @staticmethod
     def clean_dict_items(dict):
