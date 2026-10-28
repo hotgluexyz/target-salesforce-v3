@@ -286,7 +286,15 @@ class ContactsSink(SalesforceV3Sink):
                         response = self.request_api(
                             "PATCH", endpoint=url, request_data=update_record
                         )
-                        id = response.json().get("id")
+                        data = response.json()
+                        if isinstance(data, list):
+                            self.logger.error(
+                                "Unexpected Salesforce error list during PATCH "
+                                "%s/%s/<redacted>: status=%s error_codes=%s",
+                                self.endpoint, field, response.status_code,
+                                [error.get("errorCode") for error in data if isinstance(error, dict)],
+                            )
+                        id = data.get("id")
                     self.logger.info(f"{self.name} updated with id: {id}")
                     record = None
 
